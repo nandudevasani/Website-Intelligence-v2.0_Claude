@@ -38,6 +38,69 @@ function extractRootDomain(url) {
   } catch { return ''; }
 }
 
+// === CDN / PLATFORM DOMAIN WHITELIST ===
+// These are CDN, hosting, and platform domains where finalUrl may land
+// but the site is NOT actually redirecting to a different website.
+const CDN_HOSTING_DOMAINS = [
+  'cdn-website.com',     // Duda / Thryv
+  'cloudfront.net',      // AWS CloudFront
+  'cloudflare.com',      // Cloudflare
+  'workers.dev',         // Cloudflare Workers
+  'pages.dev',           // Cloudflare Pages
+  'netlify.app',         // Netlify
+  'vercel.app',          // Vercel
+  'herokuapp.com',       // Heroku
+  'azurewebsites.net',   // Azure
+  'azureedge.net',       // Azure CDN
+  'amazonaws.com',       // AWS
+  'googleapis.com',      // Google
+  'firebaseapp.com',     // Firebase
+  'web.app',             // Firebase
+  'onrender.com',        // Render
+  'railway.app',         // Railway
+  'fly.dev',             // Fly.io
+  'deno.dev',            // Deno
+  'github.io',           // GitHub Pages
+  'gitlab.io',           // GitLab Pages
+  'bitbucket.io',        // Bitbucket
+  'shopify.com',         // Shopify
+  'myshopify.com',       // Shopify
+  'squarespace.com',     // Squarespace
+  'wixsite.com',         // Wix
+  'weebly.com',          // Weebly
+  'godaddysites.com',    // GoDaddy
+  'wsimg.com',           // GoDaddy CDN
+  'secureserver.net',    // GoDaddy
+  'edgekey.net',         // Akamai
+  'akamaihd.net',        // Akamai
+  'akamaized.net',       // Akamai
+  'fastly.net',          // Fastly
+  'lirp.cdn-website.com',// Duda
+  'dudaone.com',         // Duda
+  'b-cdn.net',           // BunnyCDN
+  'cdninstagram.com',    // Instagram CDN
+  'fbcdn.net',           // Facebook CDN
+  'twimg.com',           // Twitter CDN
+  'gstatic.com'          // Google Static
+];
+
+function isCDNDomain(url) {
+  const root = extractRootDomain(url);
+  const hostname = url.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+  return CDN_HOSTING_DOMAINS.some(cdn => root === cdn || hostname.endsWith('.' + cdn) || hostname === cdn);
+}
+
+// === KNOWN WEB APP / LOGIN PAGE PATTERNS ===
+// Major web applications that show login pages or SPAs with no real content
+const KNOWN_WEB_APP_PATTERNS = [
+  { match: /outlook\.live\.com|outlook\.office/i, redirectsTo: 'microsoft.com', name: 'Microsoft Outlook' },
+  { match: /login\.live\.com/i, redirectsTo: 'microsoft.com', name: 'Microsoft Login' },
+  { match: /login\.microsoftonline\.com/i, redirectsTo: 'microsoft.com', name: 'Microsoft Online' },
+  { match: /accounts\.google\.com/i, redirectsTo: 'google.com', name: 'Google Accounts' },
+  { match: /mail\.google\.com/i, redirectsTo: 'google.com', name: 'Gmail' },
+  { match: /login\.yahoo\.com/i, redirectsTo: 'yahoo.com', name: 'Yahoo Login' }
+];
+
 // === DNS ANALYSIS ===
 
 async function analyzeDNS(domain) {
@@ -103,7 +166,7 @@ async function analyzeHTTPStatus(domain) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CONTENT INTELLIGENCE ENGINE v2.1 (Bug fixes)
+// CONTENT INTELLIGENCE ENGINE v2.2
 // ═══════════════════════════════════════════════════════════════
 
 function analyzeContent(html, domain, finalUrl) {
@@ -113,14 +176,30 @@ function analyzeContent(html, domain, finalUrl) {
   };
 
   // ════════════════════════════════════════════════════════════
-  // PRE-CHECK: Cross-Domain Redirect via HTTP (before HTML parsing)
-  // Catches: outlook.live.com → microsoft.com, etc.
+  // PRE-CHECK 1: Known Web App / Login Page Detection
+  // Catches: outlook.live.com → Microsoft, mail.google.com → Google
+  // These domains are web apps that show login/SPA pages, not real websites
+  // ════════════════════════════════════════════════════════════
+  const fullDomainStr = domain + (finalUrl ? ' ' + finalUrl : '');
+  for (const app of KNOWN_WEB_APP_PATTERNS) {
+    if (app.match.test(fullDomainStr)) {
+      analysis.verdict = 'CROSS_DOMAIN_REDIRECT';
+      analysis.confidence = 90;
+      analysis.reasons.push('Domain is a web application login portal that redirects to ' + app.redirectsTo);
+      analysis.flags.push('CROSS_DOMAIN_REDIRECT', 'WEB_APP_LOGIN');
+      analysis.redirectInfo = { source:domain, target:app.redirectsTo, targetDomain:app.redirectsTo, method:'Web Application Redirect' };
+      return analysis;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // PRE-CHECK 2: Cross-Domain Redirect via HTTP
+  // Catches real cross-domain redirects BUT skips CDN/hosting domains
   // ════════════════════════════════════════════════════════════
   if (finalUrl) {
     const origRoot = extractRootDomain(domain);
     const finalRoot = extractRootDomain(finalUrl);
-    if (origRoot && finalRoot && origRoot !== finalRoot) {
-      // HTTP-level cross-domain redirect detected
+    if (origRoot && finalRoot && origRoot !== finalRoot && !isCDNDomain(finalUrl)) {
       analysis.verdict = 'CROSS_DOMAIN_REDIRECT'; analysis.confidence = 92;
       analysis.reasons.push('Website redirects to a different domain: ' + finalUrl);
       analysis.flags.push('CROSS_DOMAIN_REDIRECT');
@@ -136,7 +215,6 @@ function analyzeContent(html, domain, finalUrl) {
   }
 
   if (!html || html.trim().length === 0) {
-    // Empty HTML but we already checked HTTP redirect above
     analysis.verdict = 'NO_CONTENT'; analysis.confidence = 95;
     analysis.reasons.push('Empty or no HTML response received');
     return analysis;
@@ -159,8 +237,6 @@ function analyzeContent(html, domain, finalUrl) {
   analysis.details.wordCount = words.length;
   const uniqueWords = new Set(words.map(w => w.toLowerCase()));
   analysis.details.uniqueWordCount = uniqueWords.size;
-
-  // Repetition ratio: how repetitive is the text?
   const repetitionRatio = analysis.details.wordCount > 0 ? analysis.details.uniqueWordCount / analysis.details.wordCount : 0;
 
   const headingMatches = html.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi) || [];
@@ -171,18 +247,28 @@ function analyzeContent(html, domain, finalUrl) {
   analysis.details.iframes = (html.match(/<iframe[\s ]/gi) || []).length;
 
   const linkMatches = html.match(/<a[^>]+href=["']([^"']+)["']/gi) || [];
+  let internalLinks = 0, externalLinks = 0;
   linkMatches.forEach(link => {
     const hm = link.match(/href=["']([^"']+)["']/i);
     if (hm) {
       const href = hm[1];
-      if (href.includes(domain) || href.startsWith('/') || href.startsWith('#') || href.startsWith('.')) analysis.details.links.internal++;
-      else if (href.startsWith('http')) analysis.details.links.external++;
+      if (href.includes(domain) || href.startsWith('/') || href.startsWith('#') || href.startsWith('.')) internalLinks++;
+      else if (href.startsWith('http')) externalLinks++;
     }
   });
+  analysis.details.links.internal = internalLinks;
+  analysis.details.links.external = externalLinks;
+
+  // How many REAL internal navigation links (not just / or #)?
+  const realNavLinks = linkMatches.filter(link => {
+    const hm = link.match(/href=["']([^"']+)["']/i);
+    if (!hm) return false;
+    const href = hm[1];
+    return (href.startsWith('/') && href.length > 1 && href !== '/#') || href.includes(domain);
+  }).length;
 
   // ════════════════════════════════════════════════════════════
   // DETECTION 1: Cross-Domain Redirect (JS / Meta Refresh)
-  // Catches: timanjel.co, mikasprachkurs.store, etc.
   // ════════════════════════════════════════════════════════════
 
   let jsRedirectTarget = null;
@@ -195,10 +281,7 @@ function analyzeContent(html, domain, finalUrl) {
     /location\.replace\s*\(\s*["']([^"']+)["']\s*\)/i,
     /top\.location\s*(?:\.href)?\s*=\s*["']([^"']+)["']/i,
     /self\.location\s*(?:\.href)?\s*=\s*["']([^"']+)["']/i,
-    // Additional patterns: setTimeout/setInterval redirects
-    /setTimeout\s*\(\s*(?:function\s*\(\)\s*\{)?\s*(?:window\.)?location\s*(?:\.href)?\s*=\s*["']([^"']+)["']/i,
-    // Meta http-equiv in JS
-    /url=["']?(https?:\/\/[^"'\s>]+)/i
+    /setTimeout\s*\(\s*(?:function\s*\(\)\s*\{)?\s*(?:window\.)?location\s*(?:\.href)?\s*=\s*["']([^"']+)["']/i
   ];
 
   for (const p of jsRedirectPatterns) {
@@ -212,7 +295,7 @@ function analyzeContent(html, domain, finalUrl) {
   if (jsRedirectTarget) {
     const targetRoot = extractRootDomain(jsRedirectTarget);
     const sourceRoot = extractRootDomain(domain);
-    if (targetRoot && sourceRoot && targetRoot !== sourceRoot) {
+    if (targetRoot && sourceRoot && targetRoot !== sourceRoot && !isCDNDomain(jsRedirectTarget)) {
       analysis.verdict = 'CROSS_DOMAIN_REDIRECT'; analysis.confidence = 92;
       analysis.reasons.push('Website redirects to an unrelated domain: ' + jsRedirectTarget);
       analysis.flags.push('CROSS_DOMAIN_REDIRECT');
@@ -228,57 +311,64 @@ function analyzeContent(html, domain, finalUrl) {
   }
 
   // ════════════════════════════════════════════════════════════
-  // DETECTION 2: Website Builder Shell Sites (IMPROVED)
-  // Catches: GoDaddy one-page templates with just brand + contact form
-  // monarchpartyrentals.com, maranathageneration.com, etc.
+  // DETECTION 2: Website Builder Shell Sites (WIDENED in v2.2)
+  // GoDaddy one-page templates: brand + tagline + contact form
   // ════════════════════════════════════════════════════════════
 
-  // --- Direct GoDaddy shell template detection ---
-  // Pattern: brand name repeated 3+ times in headings + "Drop us a line" + reCAPTCHA + cookies
-  const gdShellSignals = [
-    /drop us a line/i,
-    /sign up for our email list/i,
-    /this site is protected by recaptcha/i,
-    /this website uses cookies[\s\S]{0,300}accept/i,
-    /powered by/i
-  ];
-  const gdShellHits = gdShellSignals.filter(p => p.test(html)).length;
+  // Shell page signals (common across GoDaddy templates)
+  const shellSignals = {
+    dropUsLine: /drop us a line/i.test(html),
+    emailList: /sign up for our email list/i.test(html),
+    recaptcha: /this site is protected by recaptcha/i.test(html),
+    cookieBanner: /this website uses cookies[\s\S]{0,300}accept/i.test(html),
+    poweredBy: /powered by/i.test(html),
+    contactUs: /contact\s+us\s*---/i.test(html),  // GoDaddy "Contact Us ---" section divider
+    googlePolicies: /google\s+privacy\s+policy[\s\S]{0,50}terms\s+of\s+service/i.test(html),
+    allRightsReserved: /all\s+rights\s+reserved/i.test(html)
+  };
 
-  // Check if brand/title is repeated excessively in headings
+  const shellSignalCount = Object.values(shellSignals).filter(Boolean).length;
+
+  // Builder platform CDN indicators
+  const builderIndicators = [/wsimg\.com/i, /godaddy/i, /websites\.godaddy\.com/i, /secureserver\.net/i, /cdn-website\.com/i, /wix\.com/i, /squarespace\.com/i, /weebly\.com/i];
+  const hasBuilderIndicator = builderIndicators.some(p => p.test(html));
+
+  // Check title repetition in headings
   const titleText = (analysis.details.title || '').toLowerCase().trim();
-  let titleRepeatInHeadings = 0;
+  let titleRepeatCount = 0;
   if (titleText.length > 2) {
     analysis.details.headings.forEach(h => {
-      if (h.toLowerCase().includes(titleText) || titleText.includes(h.toLowerCase())) titleRepeatInHeadings++;
+      const ht = h.toLowerCase().trim();
+      if (ht.includes(titleText) || titleText.includes(ht)) titleRepeatCount++;
     });
   }
 
-  // GoDaddy builder indicators
-  const gdIndicators = [/wsimg\.com/i, /godaddy/i, /websites\.godaddy\.com/i, /secureserver\.net/i, /cdn-website\.com/i];
-  const hasGDIndicator = gdIndicators.some(p => p.test(html));
-
-  // SHELL SITE detection: multiple ways to trigger
+  // SHELL SITE detection — multiple paths to catch all variants
   const isShellSite = (
-    // Path A: GoDaddy shell signals (3+ signals) + low content
-    (gdShellHits >= 3 && analysis.details.wordCount < 200) ||
-    // Path B: Brand repeated in headings + contact form signals + low content
-    (titleRepeatInHeadings >= 2 && gdShellHits >= 2 && analysis.details.wordCount < 200) ||
-    // Path C: Builder indicator + shell signals + very repetitive content
-    (hasGDIndicator && gdShellHits >= 2 && repetitionRatio < 0.35 && analysis.details.wordCount < 250) ||
-    // Path D: Very repetitive + contact form + low unique words
-    (repetitionRatio < 0.3 && analysis.details.uniqueWordCount < 50 && gdShellHits >= 2 && analysis.details.wordCount < 200)
+    // Path A: 3+ shell signals + word count under 250
+    (shellSignalCount >= 3 && analysis.details.wordCount < 250) ||
+    // Path B: 2+ shell signals + title repeated + word count under 300
+    (shellSignalCount >= 2 && titleRepeatCount >= 2 && analysis.details.wordCount < 300) ||
+    // Path C: Builder CDN + 2+ shell signals + low unique content
+    (hasBuilderIndicator && shellSignalCount >= 2 && analysis.details.uniqueWordCount < 80) ||
+    // Path D: Very repetitive + shell signals + low words
+    (repetitionRatio < 0.30 && shellSignalCount >= 2 && analysis.details.wordCount < 250) ||
+    // Path E: "Drop us a line" + reCAPTCHA + under 250 words (very specific GoDaddy pattern)
+    (shellSignals.dropUsLine && shellSignals.recaptcha && analysis.details.wordCount < 250) ||
+    // Path F: Cookie banner + powered by + contact section + very few nav links + under 300 words
+    (shellSignals.cookieBanner && shellSignals.poweredBy && shellSignalCount >= 3 && realNavLinks <= 2 && analysis.details.wordCount < 300)
   );
 
   if (isShellSite) {
     analysis.verdict = 'SHELL_SITE';
-    analysis.confidence = Math.min(60 + gdShellHits * 8 + (titleRepeatInHeadings >= 2 ? 10 : 0) + (hasGDIndicator ? 10 : 0), 95);
+    analysis.confidence = Math.min(55 + shellSignalCount * 7 + (titleRepeatCount >= 2 ? 10 : 0) + (hasBuilderIndicator ? 10 : 0) + (shellSignals.dropUsLine ? 5 : 0), 95);
     analysis.reasons.push('Website is a template shell — only brand name, tagline, and contact form. No meaningful business content.');
     analysis.flags.push('SHELL_SITE');
-    if (hasGDIndicator) analysis.flags.push('BUILDER_GODADDY');
+    if (hasBuilderIndicator) analysis.flags.push('BUILDER_DETECTED');
     return analysis;
   }
 
-  // Also check other builders (Wix, Squarespace, etc.)
+  // Other builders (Wix blank, Squarespace default, WordPress default)
   const otherBuilderShells = [
     { name:'Wix', indicators:[/wix\.com/i, /wixsite\.com/i, /parastorage\.com/i], signals:[/this is a blank site/i, /welcome to your site/i, /start editing/i] },
     { name:'Squarespace', indicators:[/squarespace\.com/i, /sqsp\.net/i], signals:[/it all begins with an idea/i] },
@@ -286,14 +376,12 @@ function analyzeContent(html, domain, finalUrl) {
   ];
 
   for (const b of otherBuilderShells) {
-    const hasIndicator = b.indicators.some(p => p.test(html));
-    const signalHits = b.signals.filter(p => p.test(html)).length;
-    if (hasIndicator && signalHits >= 1 && analysis.details.uniqueWordCount < 60 && analysis.details.wordCount < 150) {
-      analysis.verdict = 'SHELL_SITE';
-      analysis.confidence = 85;
+    const hasInd = b.indicators.some(p => p.test(html));
+    const sigHits = b.signals.filter(p => p.test(html)).length;
+    if (hasInd && sigHits >= 1 && analysis.details.uniqueWordCount < 60) {
+      analysis.verdict = 'SHELL_SITE'; analysis.confidence = 85;
       analysis.reasons.push(b.name + ' template shell with no meaningful content.');
-      analysis.flags.push('SHELL_SITE', 'BUILDER_' + b.name.toUpperCase());
-      return analysis;
+      analysis.flags.push('SHELL_SITE', 'BUILDER_' + b.name.toUpperCase()); return analysis;
     }
   }
 
@@ -384,7 +472,6 @@ function analyzeContent(html, domain, finalUrl) {
     analysis.verdict = 'NO_CONTENT'; analysis.confidence = 80;
     analysis.reasons.push('Page has minimal content with no headings or images'); return analysis;
   }
-  // Highly repetitive content = likely template/placeholder
   if (analysis.details.wordCount > 20 && repetitionRatio < 0.25) {
     analysis.verdict = 'NO_CONTENT'; analysis.confidence = 82;
     analysis.reasons.push('Page content is extremely repetitive — likely a template placeholder'); analysis.flags.push('REPETITIVE_CONTENT'); return analysis;
@@ -395,46 +482,30 @@ function analyzeContent(html, domain, finalUrl) {
   }
 
   // ════════════════════════════════════════════════════════════
-  // DETECTION 8: Political Campaign Site (STRICTER - v2.1 fix)
-  // Must have STRONG political signals, not just generic words
+  // DETECTION 8: Political Campaign Site (strict)
   // ════════════════════════════════════════════════════════════
 
-  // Strong signals (high confidence - things ONLY political sites have)
   const strongPoliticalPatterns = [
-    /paid\s+for\s+by/i,                              // FEC disclosure (very strong)
-    /authorized\s+by\s+[\w\s]+committee/i,           // Authorization disclosure
-    /donate\s+to\s+(our|the|my)\s+campaign/i,        // Campaign donation
-    /find\s+a\s+(voting|polling)\s+location/i,       // Voter info
-    /registered\s+to\s+vote/i,                       // Voter registration
-    /vote\s+(for|on)\s+(may|november|tuesday|monday|march|april|june|july|august|september|october|december|\d)/i,  // Specific vote dates
-    /political\s+committee/i,                        // Political committee
-    /political\s+action\s+committee/i,               // PAC
+    /paid\s+for\s+by/i, /authorized\s+by\s+[\w\s]+committee/i,
+    /donate\s+to\s+(our|the|my)\s+campaign/i, /find\s+a\s+(voting|polling)\s+location/i,
+    /registered\s+to\s+vote/i, /political\s+committee/i, /political\s+action\s+committee/i,
+    /vote\s+(for|on)\s+(may|november|tuesday|monday|march|april|june|july|august|september|october|december|\d)/i
   ];
 
-  // Medium signals (need 2+ to count)
   const mediumPoliticalPatterns = [
     /running\s+for\s+(office|mayor|governor|council|commissioner|congress|senate|board|judge|sheriff|attorney)/i,
-    /county\s+commissioner/i,
-    /campaign\s+(team|headquarters|office|donation|contribution)/i,
-    /join\s+(my|our|the)\s+campaign/i,
-    /your\s+vote\s+(matters|counts)/i,
-    /on\s+the\s+ballot/i,
-    /election\s+day/i,
-    /primary\s+election/i,
-    /general\s+election/i
+    /county\s+commissioner/i, /campaign\s+(team|headquarters|office|donation|contribution)/i,
+    /join\s+(my|our|the)\s+campaign/i, /your\s+vote\s+(matters|counts)/i,
+    /on\s+the\s+ballot/i, /election\s+day/i, /primary\s+election/i, /general\s+election/i
   ];
 
-  // Domain patterns
   const politicalDomainPatterns = [/^vote\d*[a-z]/i, /^elect[a-z]/i];
 
   let strongHits = strongPoliticalPatterns.filter(p => p.test(html)).length;
   let mediumHits = mediumPoliticalPatterns.filter(p => p.test(html)).length;
   let domainHits = politicalDomainPatterns.filter(p => p.test(domain)).length;
 
-  // Require at least 1 strong signal, OR 2+ medium signals + domain match
-  const isPolitical = (strongHits >= 1 && (mediumHits >= 1 || domainHits >= 1)) ||
-                      (mediumHits >= 2 && domainHits >= 1) ||
-                      (strongHits >= 2);
+  const isPolitical = (strongHits >= 1 && (mediumHits >= 1 || domainHits >= 1)) || (mediumHits >= 2 && domainHits >= 1) || (strongHits >= 2);
 
   if (isPolitical) {
     analysis.verdict = 'POLITICAL_CAMPAIGN';
@@ -455,7 +526,7 @@ function analyzeContent(html, domain, finalUrl) {
   return analysis;
 }
 
-// === MAIN ANALYSIS ENDPOINT ===
+// === ENDPOINTS ===
 
 app.post('/api/analyze', async (req, res) => {
   const { domain: rawDomain } = req.body;
@@ -463,7 +534,7 @@ app.post('/api/analyze', async (req, res) => {
 
   const domain = normalizeDomain(rawDomain);
   const timestamp = new Date().toISOString();
-  console.log(`\n[SCAN] ${domain} at ${timestamp}`);
+  console.log(`\n[SCAN] ${domain}`);
 
   try {
     const [dnsResults, sslResults, httpResults] = await Promise.all([analyzeDNS(domain), analyzeSSL(domain), analyzeHTTPStatus(domain)]);
@@ -485,7 +556,7 @@ app.post('/api/analyze', async (req, res) => {
     else { overallStatus = 'ISSUES'; statusColor = 'yellow'; }
 
     const genuinelyValid = ['ACTIVE','POLITICAL_CAMPAIGN'].includes(overallStatus);
-    console.log(`  -> ${overallStatus} | ${contentAnalysis.verdict} | Valid: ${genuinelyValid} | Words: ${contentAnalysis.details.wordCount} | Unique: ${contentAnalysis.details.uniqueWordCount}`);
+    console.log(`  -> ${overallStatus} | Words:${contentAnalysis.details.wordCount} Unique:${contentAnalysis.details.uniqueWordCount} | Valid:${genuinelyValid}`);
     res.json({ domain, timestamp, overallStatus, statusColor, isGenuinelyValid:genuinelyValid, dns:dnsResults, ssl:sslResults, http:httpStatus, content:contentAnalysis });
   } catch (err) {
     console.error(`  -> ERROR: ${err.message}`);
@@ -493,14 +564,12 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
-// === BULK ANALYSIS ENDPOINT ===
-
 app.post('/api/analyze/bulk', async (req, res) => {
   const { domains } = req.body;
   if (!domains || !Array.isArray(domains) || domains.length === 0) return res.status(400).json({ error:'Provide an array of domains' });
   if (domains.length > 20) return res.status(400).json({ error:'Maximum 20 domains per request' });
 
-  console.log(`\n[BULK] Analyzing ${domains.length} domains...`);
+  console.log(`\n[BULK] ${domains.length} domains`);
   const results = [];
 
   for (const rawDomain of domains) {
@@ -528,16 +597,15 @@ app.post('/api/analyze/bulk', async (req, res) => {
       console.log(`  [OK] ${domain} -> ${overallStatus}`);
     } catch (err) {
       results.push({ domain:normalizeDomain(rawDomain), overallStatus:'ERROR', isGenuinelyValid:false, error:err.message });
-      console.log(`  [ERR] ${normalizeDomain(rawDomain)} -> ${err.message}`);
     }
   }
   res.json({ total:results.length, results });
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime() }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'2.2' }));
 
 app.listen(PORT, () => {
-  console.log(`\n=== Website Intelligence v2.1 ===`);
+  console.log(`\n=== Website Intelligence v2.2 ===`);
   console.log(`Dashboard: http://localhost:${PORT}`);
   console.log(`API:       http://localhost:${PORT}/api/analyze\n`);
 });
