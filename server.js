@@ -1193,11 +1193,26 @@ async function extractBusinessInfo(html, domain) {
     }
   }
   // Try to find address in text if schema didn't have it
-  if (!address.street && !address.city) {
-    // Broader regex: also match addresses without ZIP
-    const addrMatch = bodyText.match( /\d{1,6}\s+[A-Za-z0-9\s.#-]+?\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy)\b[^.]{0,120}/i);
-    if (addrMatch) address = parseUSAddress(addrMatch[0]);
+ if (!address.street && !address.city) {
+  const addrMatch = bodyText.match(
+    /\b\d{1,6}\s+[A-Za-z0-9\s.#-]+?\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy)\b(?:,\s*[A-Za-z\s]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
+  );
+
+  if (addrMatch) {
+    const parsed = parseUSAddress(addrMatch[0]);
+
+    // Only accept if valid US state code
+    const validStates = new Set([
+      'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA',
+      'ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK',
+      'OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+    ]);
+
+    if (parsed.state && validStates.has(parsed.state)) {
+      address = parsed;
+    }
   }
+}
   // Ensure ZIP preserves leading zeros
   if (address.zip && /^\d{4}$/.test(address.zip)) address.zip = '0' + address.zip;
 
