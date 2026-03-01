@@ -1158,13 +1158,7 @@ async function extractBusinessInfo(html, domain) {
   }
 
   // 6. Business name (cleaned) — now includes footer as a source
-  let businessName = cleanBusinessName(
-  rawTitle,
-  cleanOGSiteName,
-  cleanSchemaName,
-  domain,
-  footerName
-);
+  let businessName = cleanBusinessName(rawTitle, cleanOGSiteName, cleanSchemaName, domain, footerName);
 // Fallback: if cleanBusinessName returned nothing, use the domain
 if (!businessName || businessName.trim().length === 0) {
   businessName = domain;
