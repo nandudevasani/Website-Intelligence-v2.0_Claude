@@ -1158,18 +1158,27 @@ async function extractBusinessInfo(html, domain) {
   }
 
   // 6. Business name (cleaned) — now includes footer as a source
-  const businessName = cleanBusinessName(rawTitle, cleanOGSiteName, cleanSchemaName, domain, footerName);
+  let businessName = cleanBusinessName(
+  rawTitle,
+  cleanOGSiteName,
+  cleanSchemaName,
+  domain,
+  footerName
+);
 
   // 7. Contact info
   const contact = extractContactInfo(html, bodyText);
-  // Detect business name from contact block (strong fallback)
-if (!businessName || businessName.length < 5) {
-  const contactBlockMatch = bodyText.match(
-    /([A-Z][A-Za-z&\s]+(?:LLC|Inc|Corporation|Company|Service|Services|Repair|Plumbing|Mechanical)[A-Za-z&\s]*)\s+Sanford,\s*NC\s*\d{5}/i
+  // Strong fallback: detect business name from contact block
+if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase()) {
+  const contactNameMatch = bodyText.match(
+    /([A-Z][A-Za-z&\s]+(?:LLC|Inc|Corporation|Company|Service|Services|Repair|Plumbing|Mechanical)[A-Za-z&\s]*)/i
   );
 
-  if (contactBlockMatch && contactBlockMatch[1]) {
-    businessName = contactBlockMatch[1].trim();
+  if (contactNameMatch && contactNameMatch[1]) {
+    const detectedName = contactNameMatch[1].trim();
+    if (detectedName.length > 5 && detectedName.length < 100) {
+      businessName = detectedName;
+    }
   }
 }
   // Merge schema contacts
