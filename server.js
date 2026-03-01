@@ -37,7 +37,7 @@ function decodeHTML(str) {
 
 // In-Memory Cache (1-hour TTL)
 const CACHE = new Map();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes — short TTL so fixes apply quickly
 function cacheGet(key) { const e = CACHE.get(key); if (!e) return null; if (Date.now() > e.expires) { CACHE.delete(key); return null; } return e.data; }
 function cacheSet(key, data) { CACHE.set(key, { data, expires: Date.now() + CACHE_TTL }); if (CACHE.size > 500) { const oldest = CACHE.keys().next().value; CACHE.delete(oldest); } }
 
@@ -1333,16 +1333,24 @@ async function extractBusinessInfo(html, domain) {
   // Also trigger when name looks like a domain slug (no spaces = camelCase/concatenated)
   const nameIsSlug = businessName && !businessName.includes(' ') && businessName.length > 6;
   if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug) {
-    // Regex: allow &, apostrophes, spaces — catches "CC Plumbing Service & Repair LLC"
-    const contactNameMatch = bodyText.match(
-      /([A-Z][A-Za-z0-9&'. -]{2,60}\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Repair|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners)(?:\s+LLC|\.?)?)/
-    );
-    if (contactNameMatch && contactNameMatch[1]) {
-      const detectedName = contactNameMatch[0].trim().replace(/\s+/g, ' ');
-      if (detectedName.length > 5 && detectedName.length < 100) {
-        businessName = detectedName;
+    // Scan all matches, pick the shortest clean one (avoids grabbing repeated carousel text)
+    const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Repair|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners)(?:[ \t]+LLC|\.?)?)/g;
+    let nameCandidate = null, shortestLen = 999;
+    let nm;
+    while ((nm = nameRegex.exec(bodyText)) !== null) {
+      const candidate = nm[0].trim().replace(/\s+/g, ' ');
+      // Skip if it contains obvious repetition (same word appears 3+ times)
+      const words = candidate.toLowerCase().split(/\s+/);
+      const wordCounts = {};
+      words.forEach(w => { wordCounts[w] = (wordCounts[w]||0)+1; });
+      const maxRepeat = Math.max(...Object.values(wordCounts));
+      if (maxRepeat >= 3) continue;
+      if (candidate.length > 5 && candidate.length < 80 && candidate.length < shortestLen) {
+        shortestLen = candidate.length;
+        nameCandidate = candidate;
       }
     }
+    if (nameCandidate) businessName = nameCandidate;
   }
 
   // Merge schema contacts
@@ -1378,25 +1386,41 @@ async function extractBusinessInfo(html, domain) {
 
   // If still no street found, scan body for "City, ST ZIP" pattern
   if (!address.street) {
-    // Match patterns like: "Sanford, NC 27332" or "Auburn Hills, MI 48326"
-    const cityStateZipMatch = bodyText.match(/\b([A-Za-z][A-Za-z\s]{1,30}),\s*([A-Z]{2})\s*(\d{5})\b/);
+    // Match 1-3 word city names immediately before state code + ZIP
+    // Anchored to word start to avoid "Repair LLC Sanford, NC" matching
+    const cityStateZipMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z]{2})\s*(\d{5})\b/m);
     if (cityStateZipMatch) {
       const candidateCity = cityStateZipMatch[1].trim();
       const candidateState = cityStateZipMatch[2];
       const candidateZip = cityStateZipMatch[3];
-      // Reject false positives: city must not be a generic word
-      const notACity = /^(the|and|for|our|your|this|that|with|from|have|been|will|terms|privacy|rights|all|any|contact|email|phone|call|us|me|we|it|is|are|was|were)$/i;
-      if (!notACity.test(candidateCity) && candidateCity.length >= 3) {
+      // Must not contain business-name words
+      const notACity = /LLC|Inc|Corp|Repair|Service|Plumbing|Mechanical|Management|Company|the|and|for|your|this|terms|privacy|rights|contact|email|phone/i;
+      if (!notACity.test(candidateCity) && candidateCity.length >= 3 && candidateCity.length <= 40) {
         if (!address.city) address.city = candidateCity;
         if (!address.state) address.state = candidateState;
         if (!address.zip) address.zip = candidateZip;
+      }
+    }
+    // Also handle full state name: "Auburn, Maine 04210"
+    if (!address.city) {
+      const fullStateMatch = bodyText.match(/(?:^|[
+
+,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})/m);
+      if (fullStateMatch) {
+        const stateNameRaw = fullStateMatch[2].trim();
+        const stateCode = Object.entries(US_STATES).find(([,name]) => name.toLowerCase() === stateNameRaw.toLowerCase())?.[0];
+        if (stateCode) {
+          address.city  = fullStateMatch[1].trim();
+          address.state = stateCode;
+          address.zip   = fullStateMatch[3];
+        }
       }
     }
   }
 
   // --- Street address extraction: strict regex to prevent bleed into business name ---
   const addrMatch = bodyText.match(
-    /\b(\d{1,6}\s+[A-Za-z0-9.][A-Za-z0-9\s.#-]{1,50}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)(?:[,.]?\s*(?:Suite|Ste\.?|Unit|Apt\.?|#)\s*[A-Za-z0-9-]+)?)(?:,\s*[A-Za-z\s]{1,30},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
+    /(?:^|[\n\r\s])(\d{1,5}\s+[A-Za-z][A-Za-z0-9\s.#-]{1,50}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:,?\s+(?:Suite|Ste\.?|Bldg\.?|Building|Unit|Apt\.?|Floor|Fl\.?)\s*[#]?[A-Za-z0-9-]+)?)(?:,\s*[A-Za-z\s]{1,30},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/im
   );
   if (addrMatch) {
     const rawMatch = addrMatch[0].substring(0, 120).trim();
@@ -1523,9 +1547,7 @@ app.post('/api/extract-business', async (req, res) => {
   const domain = normalizeDomain(rawDomain);
   console.log(`\n[BIZ] ${domain}`);
 
-  // Check cache
-  const cached = cacheGet('biz:' + domain);
-  if (cached) { console.log(`  [CACHE HIT] ${domain}`); return res.json(cached); }
+  // No cache — always return live results
 
   try {
     // Run DNS, HTTP fetch, AND domain age all in parallel — no sequential waiting
@@ -1552,10 +1574,9 @@ app.post('/api/extract-business', async (req, res) => {
     else if (httpStatus.statusCode >= 200 && httpStatus.statusCode < 400 && contentAnalysis.verdict === 'VALID') websiteStatus = 'ACTIVE';
     else websiteStatus = 'ISSUES';
 
-    // If site is dead/down/suspended, skip business extraction
+    // If site is dead/down/suspended, skip business extraction (reuse domainAgeResult from above)
     if (['DEAD', 'DOWN', 'SUSPENDED'].includes(websiteStatus)) {
-      const domainAge = await getDomainAge(domain);
-      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, socials: {}, domainAge, metaDescription: null, businessType: null } });
+      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, socials: {}, domainAge: domainAgeResult, domainAgeText: domainAgeResult.ageText || null, domainCreated: domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0,10) : null, registrar: domainAgeResult.registrar || null, metaDescription: null, businessType: null } });
     }
 
     let business = await extractBusinessInfo(html, domain);
@@ -1585,7 +1606,6 @@ app.post('/api/extract-business', async (req, res) => {
 
     console.log(`  -> ${websiteStatus} | ${business.businessName} | Phones:${business.phones.length} Emails:${business.emails.length} | ${business.country.name}`);
     const bizResult = { domain, websiteStatus, reasons: contentAnalysis.reasons, business };
-    cacheSet('biz:' + domain, bizResult);
     res.json(bizResult);
   } catch (err) {
     console.error(`  -> BIZ ERROR: ${err.message}`);
@@ -1593,7 +1613,15 @@ app.post('/api/extract-business', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.3', cache:CACHE.size }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.5-nocache', cache:CACHE.size }));
+
+// Clear all cached results — call this after deploying fixes so stale data is gone immediately
+app.post('/api/cache-clear', (req, res) => {
+  const size = CACHE.size;
+  CACHE.clear();
+  console.log(`[CACHE] Cleared ${size} entries`);
+  res.json({ cleared: size, message: 'Cache cleared. Next requests will re-fetch fresh data.' });
+});
 
 // === DOMAIN AGE DEBUG ENDPOINT ===
 // Hit: GET /api/debug-domain-age?domain=ccplumbingservice.com
