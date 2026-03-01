@@ -19,6 +19,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // === UTILITY FUNCTIONS ===
 
+// HTML Entity Decoder
+function decodeHTML(str) {
+  if (!str) return str;
+  return str
+    .replace(/&bull;|&#8226;/gi, '')  // strip bullet entities BEFORE numeric decode
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ').replace(/&ndash;/gi, '–').replace(/&mdash;/gi, '—')
+    .replace(/&copy;/gi, '©').replace(/&reg;/gi, '®')
+    .replace(/&trade;/gi, '™').replace(/&laquo;/gi, '«').replace(/&raquo;/gi, '»')
+    .replace(/[•·]/g, '')  // also strip literal bullet/middle dot chars
+    .replace(/\s+/g, ' ').trim();
+}
+
+// In-Memory Cache (1-hour TTL)
+const CACHE = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+function cacheGet(key) { const e = CACHE.get(key); if (!e) return null; if (Date.now() > e.expires) { CACHE.delete(key); return null; } return e.data; }
+function cacheSet(key, data) { CACHE.set(key, { data, expires: Date.now() + CACHE_TTL }); if (CACHE.size > 500) { const oldest = CACHE.keys().next().value; CACHE.delete(oldest); } }
+
 function normalizeDomain(input) {
   let d = input.trim().toLowerCase();
   d = d.replace(/^(https?:\/\/)/, '').replace(/\/.*$/, '').replace(/^www\./, '');
@@ -140,29 +162,43 @@ function analyzeSSL(domain) {
   });
 }
 
-// === HTTP STATUS ANALYSIS ===
+// === HTTP STATUS ANALYSIS (with retry) ===
 
-async function analyzeHTTPStatus(domain) {
+async function analyzeHTTPStatus(domain, retries = 2) {
   const r = { isUp:false, statusCode:null, statusText:null, responseTime:null, finalUrl:null, redirectChain:[], headers:{}, error:null };
   const start = Date.now();
-  const hdrs = { 'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language':'en-US,en;q=0.5' };
+  const hdrs = {
+    'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language':'en-US,en;q=0.9',
+    'Accept-Encoding':'gzip, deflate, br',
+    'Cache-Control':'no-cache',
+    'Connection':'keep-alive',
+    'Upgrade-Insecure-Requests':'1'
+  };
 
-  try {
-    const res = await axios.get(buildUrl(domain), { timeout:15000, maxRedirects:10, validateStatus:()=>true, headers:hdrs });
-    r.isUp = true; r.statusCode = res.status; r.statusText = res.statusText;
-    r.responseTime = Date.now() - start;
-    r.finalUrl = res.request?.res?.responseUrl || res.config?.url || null;
-    r.headers = { server:res.headers['server']||null, poweredBy:res.headers['x-powered-by']||null, contentType:res.headers['content-type']||null };
-    return { result:r, html:typeof res.data === 'string' ? res.data : '' };
-  } catch (err) {
-    r.responseTime = Date.now() - start;
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const fb = await axios.get(buildUrl(domain,'http'), { timeout:15000, maxRedirects:10, validateStatus:()=>true, headers:{'User-Agent':'Mozilla/5.0'} });
-      r.isUp = true; r.statusCode = fb.status; r.statusText = fb.statusText;
-      r.finalUrl = fb.request?.res?.responseUrl || fb.config?.url || null;
-      return { result:r, html:typeof fb.data === 'string' ? fb.data : '' };
-    } catch (e2) { r.error = err.code || err.message; return { result:r, html:'' }; }
+      if (attempt > 0) await new Promise(ok => setTimeout(ok, 1000 * attempt)); // backoff
+      const res = await axios.get(buildUrl(domain), { timeout:12000, maxRedirects:10, validateStatus:()=>true, headers:hdrs });
+      r.isUp = true; r.statusCode = res.status; r.statusText = res.statusText;
+      r.responseTime = Date.now() - start;
+      r.finalUrl = res.request?.res?.responseUrl || res.config?.url || null;
+      r.headers = { server:res.headers['server']||null, poweredBy:res.headers['x-powered-by']||null, contentType:res.headers['content-type']||null };
+      return { result:r, html:typeof res.data === 'string' ? res.data : '' };
+    } catch (err) {
+      r.responseTime = Date.now() - start;
+      if (attempt < retries) continue; // retry
+      // Final attempt: try HTTP fallback
+      try {
+        const fb = await axios.get(buildUrl(domain,'http'), { timeout:10000, maxRedirects:10, validateStatus:()=>true, headers:{'User-Agent':hdrs['User-Agent'],'Accept':hdrs['Accept']} });
+        r.isUp = true; r.statusCode = fb.status; r.statusText = fb.statusText;
+        r.finalUrl = fb.request?.res?.responseUrl || fb.config?.url || null;
+        return { result:r, html:typeof fb.data === 'string' ? fb.data : '' };
+      } catch (e2) { r.error = err.code || err.message; return { result:r, html:'' }; }
+    }
   }
+  return { result:r, html:'' };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -537,6 +573,11 @@ app.post('/api/analyze', async (req, res) => {
   if (!rawDomain || rawDomain.trim().length === 0) return res.status(400).json({ error:'Domain is required' });
 
   const domain = normalizeDomain(rawDomain);
+
+  // Check cache first
+  const cached = cacheGet('analyze:' + domain);
+  if (cached) { console.log(`  [CACHE HIT] ${domain}`); return res.json(cached); }
+
   const timestamp = new Date().toISOString();
   console.log(`\n[SCAN] ${domain}`);
 
@@ -561,7 +602,9 @@ app.post('/api/analyze', async (req, res) => {
 
     const genuinelyValid = ['ACTIVE','POLITICAL_CAMPAIGN'].includes(overallStatus);
     console.log(`  -> ${overallStatus} | Words:${contentAnalysis.details.wordCount} Unique:${contentAnalysis.details.uniqueWordCount} | Valid:${genuinelyValid}`);
-    res.json({ domain, timestamp, overallStatus, statusColor, isGenuinelyValid:genuinelyValid, dns:dnsResults, ssl:sslResults, http:httpStatus, content:contentAnalysis });
+    const result = { domain, timestamp, overallStatus, statusColor, isGenuinelyValid:genuinelyValid, dns:dnsResults, ssl:sslResults, http:httpStatus, content:contentAnalysis };
+    cacheSet('analyze:' + domain, result);
+    res.json(result);
   } catch (err) {
     console.error(`  -> ERROR: ${err.message}`);
     res.status(500).json({ domain, error:'Analysis failed', message:err.message });
@@ -642,17 +685,35 @@ const UK_POSTAL = /[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}/i;
 const AU_STATES = ['NSW','VIC','QLD','SA','WA','TAS','ACT','NT'];
 const AU_POSTAL = /\b\d{4}\b/;
 
-function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain) {
+function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName) {
   // Helper: check if string is mostly ASCII/English
   const isEnglish = (s) => { if (!s) return false; const nonAscii = s.replace(/[\x00-\x7F]/g, '').length; return nonAscii / s.length < 0.3; };
 
   // Helper: is this an error page title?
   const isErrorTitle = (s) => /^(403|404|500|502|503|forbidden|not found|error|access denied|unavailable|page not found)/i.test(s?.trim());
 
-  // Priority: Schema > OG site_name > cleaned title > domain
-  // But ONLY if the value is English and not an error
-  if (schemaName && schemaName.length > 2 && schemaName.length < 80 && isEnglish(schemaName) && !isErrorTitle(schemaName)) return schemaName.trim();
-  if (ogSiteName && ogSiteName.length > 2 && ogSiteName.length < 80 && isEnglish(ogSiteName) && !isErrorTitle(ogSiteName)) return ogSiteName.trim();
+  // Helper: clean trailing/leading junk from a name
+  const cleanName = (s) => s ? s.replace(/[•·|:–—\-]+$/, '').replace(/^[•·|:–—\-]+/, '').replace(/\s+/g, ' ').trim() : s;
+
+  // Helper: strip subtitle like "Name - A Fidelity Company"
+  const stripSubtitle = (s) => {
+    if (!s) return s;
+    // "Name - A/An Subtitle" or "Name - Subtitle Here"
+    return s.replace(/\s*[-–—]\s*[Aa]n?\s+\w+\s+\w+.*$/, '').trim();
+  };
+
+  // Helper: is this just a domain name as the title?
+  const isDomainAsName = (s, dom) => {
+    if (!s) return false;
+    const cleaned = s.toLowerCase().replace(/[.\s]/g, '');
+    const domBase = dom.replace(/\.[a-z]+$/i, '').replace(/[.\-_]/g, '');
+    return cleaned === domBase || cleaned === dom.replace(/\./g, '') || /\.com$|\.net$|\.org$/i.test(s);
+  };
+
+  // Priority: Schema > Footer > OG site_name > cleaned title > domain
+  if (schemaName && schemaName.length > 2 && schemaName.length < 80 && isEnglish(schemaName) && !isErrorTitle(schemaName) && !isDomainAsName(schemaName, domain)) return cleanName(stripSubtitle(schemaName));
+  if (footerName && footerName.length > 2 && footerName.length < 80 && isEnglish(footerName)) return cleanName(footerName);
+  if (ogSiteName && ogSiteName.length > 2 && ogSiteName.length < 80 && isEnglish(ogSiteName) && !isErrorTitle(ogSiteName) && !isDomainAsName(ogSiteName, domain)) return cleanName(stripSubtitle(ogSiteName));
 
   if (rawTitle && isEnglish(rawTitle) && !isErrorTitle(rawTitle)) {
     let name = rawTitle;
@@ -674,14 +735,13 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain) {
           let score = 0;
           const pLower = p.toLowerCase();
 
-          // First position bonus — title almost always starts with the business name
+          // First position bonus
           if (pi === 0) score += 4;
 
           // Domain word matches (strongest signal)
           let domMatches = 0;
           for (const dw of domWords) {
             if (pLower.includes(dw.toLowerCase())) domMatches++;
-            // Partial match: domain abbreviation matches start of a word in the part
             else if (dw.length >= 4) {
               const partWords = pLower.split(/\s+/);
               for (const pw of partWords) {
@@ -691,23 +751,20 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain) {
           }
           score += domMatches * 10;
 
-          // Business suffix — only boost if part also has a proper name before it
+          // Business suffix — boost more if preceded by proper name
           if (/\b(LLC|Inc|Corp|Co|Ltd|Group|Associates|Partners|Agency|Management|Enterprises|Company)\b/i.test(p)) {
             const hasPropName = /^[A-Z][a-z]/.test(p) || /['']s\b/.test(p);
             score += hasPropName ? 6 : 2;
           }
 
-          // Penalize generic service-only descriptions (no proper nouns)
+          // Penalize generic service-only descriptions
           if (/^(hvac|plumbing|heating|cooling|electrical|roofing|cleaning|dental|legal|auto|real estate)\s+(service|solution|repair|company|specialist)/i.test(p)) score -= 4;
-
-          // Penalize generic SEO keywords
           if (/^(best|top|#?\d|trusted|affordable|professional|premier|quality|expert|local|official|leading|certified|licensed)\b/i.test(p)) score -= 5;
-          // Penalize "Location + Service" patterns
           if (/\b(dentist|plumber|lawyer|doctor|attorney|contractor|electrician|realtor|cleaning|repair|roofing|hvac|landscap)\w*\s*(in|near|for|of)?\s*$/i.test(p)) score -= 3;
           if (/^\w+(\s+\w+)?\s+(dentist|plumber|lawyer|doctor|attorney|contractor|electrician|realtor|cleaning|company)\s*$/i.test(p)) score -= 4;
           if (/\d[-\s]star/i.test(p)) score -= 5;
 
-          // Boost parts with possessive names (Big Mike's, Joe's, etc.)
+          // Boost possessive names
           if (/[A-Z][a-z]+['']s\b/.test(p)) score += 3;
 
           if (p.length >= 5 && p.length <= 50) score += 2;
@@ -720,14 +777,13 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain) {
         name = best;
       }
     }
-    name = name.replace(/\s+/g, ' ').trim();
-    if (name.length > 2 && name.length < 100) return name;
+    name = cleanName(stripSubtitle(name));
+    if (name.length > 2 && name.length < 100 && !isDomainAsName(name, domain)) return name;
   }
 
-  // Fallback: humanize domain name (works for non-English sites too)
+  // Fallback: humanize domain name
   const base = domain.replace(/\.(com|net|org|info|biz|co|us|io|store|art|inc|godaddysites\.com)$/i, '');
   return base.split(/[-_.]/).filter(w => w.length > 0).map(w => {
-    // Skip pure numbers
     if (/^\d+$/.test(w)) return '';
     return w.charAt(0).toUpperCase() + w.slice(1);
   }).filter(Boolean).join(' ') || domain;
@@ -763,23 +819,23 @@ function extractContactInfo(html, bodyText) {
     if (!result.emails.includes(email) && !/example\.com|test\.com|email\.com|yourdomain/.test(email)) result.emails.push(email);
   });
 
-  // Emails from text (less reliable, filter common false positives)
+  // Emails from text (less reliable, filter false positives)
   const textEmails = bodyText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) || [];
   textEmails.forEach(e => {
     const email = e.toLowerCase();
-    if (!result.emails.includes(email) && !/example\.com|test\.com|email\.com|yourdomain|sentry\.io|wixpress|google\.com|facebook\.com|w3\.org|schema\.org|jquery|wordpress|gravatar/.test(email)) result.emails.push(email);
+    if (!result.emails.includes(email) && !/example\.com|test\.com|email\.com|yourdomain|sentry\.io|wixpress|google\.com|facebook\.com|w3\.org|schema\.org|jquery|wordpress|gravatar|godaddy/.test(email)) result.emails.push(email);
   });
 
-  // Phone numbers from tel: links (most reliable)
-  const telMatches = html.match(/tel:([+\d\s\-().]+)/gi) || [];
-  telMatches.forEach(m => {
-    let phone = m.replace(/^tel:/i, '').replace(/\s+/g, ' ').trim();
-    if (phone.replace(/\D/g, '').length >= 7 && !result.phones.includes(phone)) result.phones.push(phone);
-  });
+  // Helper: format raw digits to US phone
+  function formatPhone(digits) {
+    if (digits.length === 11 && digits.startsWith('1')) digits = digits.substring(1);
+    if (digits.length === 10) return '(' + digits.substring(0,3) + ') ' + digits.substring(3,6) + '-' + digits.substring(6);
+    return digits; // international or unusual
+  }
 
-  // Phone numbers from text
+  // Phone numbers from BODY TEXT first (already formatted by the website)
   const phonePatterns = [
-    /\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/g,           // (xxx) xxx-xxxx
+    /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g,           // (xxx) xxx-xxxx
     /\+1[\s.\-]?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/g, // +1 xxx xxx xxxx
     /\+\d{1,3}[\s.\-]?\d{2,4}[\s.\-]?\d{3,4}[\s.\-]?\d{3,4}/g // international
   ];
@@ -791,6 +847,17 @@ function extractContactInfo(html, bodyText) {
         result.phones.push(phone.trim());
       }
     });
+  });
+
+  // Phone numbers from tel: links (fallback — format the raw digits)
+  const telMatches = html.match(/tel:([+\d\s\-().]+)/gi) || [];
+  telMatches.forEach(m => {
+    let raw = m.replace(/^tel:/i, '').trim();
+    let digits = raw.replace(/\D/g, '');
+    if (digits.length >= 7 && !result.phones.some(ep => ep.replace(/\D/g, '') === digits)) {
+      // Format it since tel: links are usually just raw digits
+      result.phones.push(formatPhone(digits));
+    }
   });
 
   return result;
@@ -1027,48 +1094,84 @@ async function extractBusinessInfo(html, domain) {
   // 2. Open Graph meta tags
   const og = extractOGMeta(html);
 
-  // 3. Title tag
+  // 3. Title tag — decode HTML entities
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const rawTitle = titleMatch ? titleMatch[1].trim().replace(/\s+/g, ' ') : null;
+  const rawTitle = titleMatch ? decodeHTML(titleMatch[1].trim().replace(/\s+/g, ' ')) : null;
 
-  // 4. Business name (cleaned)
-  const businessName = cleanBusinessName(rawTitle, og.siteName, schema.name, domain);
+  // 4. Decode schema/OG values
+  const cleanSchemaName = schema.name ? decodeHTML(schema.name) : null;
+  const cleanOGSiteName = og.siteName ? decodeHTML(og.siteName) : null;
 
-  // 5. Contact info
+  // 5. Footer/Copyright extraction for business name
+  let footerName = null;
+  const footerMatch = html.match(/<footer[\s\S]*?<\/footer>/i);
+  if (footerMatch) {
+    const footerText = footerMatch[0].replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ');
+    // Match "© 2024 Business Name" or "Copyright 2024 Business Name" or "© Business Name"
+    const copyMatch = footerText.match(/(?:©|copyright)\s*(?:\d{4}\s*[-–]?\s*\d{0,4}\s*)?([A-Z][A-Za-z\s&'.,-]+?)(?:\s*[.|]|\s*All\s+Rights|\s*$)/i);
+    if (copyMatch && copyMatch[1]) {
+      let fn = copyMatch[1].trim().replace(/[.,]+$/, '').trim();
+      if (fn.length > 3 && fn.length < 80 && !/all rights|privacy|terms|powered by|built with|designed by/i.test(fn)) {
+        footerName = fn;
+      }
+    }
+  }
+
+  // 6. Business name (cleaned) — now includes footer as a source
+  const businessName = cleanBusinessName(rawTitle, cleanOGSiteName, cleanSchemaName, domain, footerName);
+
+  // 7. Contact info
   const contact = extractContactInfo(html, bodyText);
   // Merge schema contacts
-  if (schema.phone && !contact.phones.includes(schema.phone)) contact.phones.unshift(schema.phone);
-  if (schema.email && !contact.emails.includes(schema.email.toLowerCase())) contact.emails.unshift(schema.email.toLowerCase());
+  if (schema.phone) {
+    const schemaDigits = schema.phone.replace(/\D/g, '');
+    if (!contact.phones.some(p => p.replace(/\D/g, '') === schemaDigits)) contact.phones.unshift(schema.phone);
+  }
+  if (schema.email) {
+    const se = schema.email.toLowerCase();
+    if (!contact.emails.includes(se)) contact.emails.unshift(se);
+  }
 
-  // 6. Social links
+  // Filter filler/placeholder emails
+  contact.emails = contact.emails.filter(e => !/filler@|noreply@|no-reply@|donotreply@|placeholder/i.test(e));
+
+  // 8. Social links
   const socials = extractSocialLinks(html);
 
-  // 7. Address parsing
+  // 9. Address parsing — preserve leading zeros in ZIP
   let address = { street:'', city:'', state:'', zip:'' };
   if (schema.address) {
     if (schema.address.street || schema.address.city) {
-      address = { street: schema.address.street || '', city: schema.address.city || '', state: schema.address.state || '', zip: schema.address.zip || '' };
+      address = {
+        street: schema.address.street || '',
+        city: schema.address.city || '',
+        state: schema.address.state || '',
+        zip: schema.address.zip ? String(schema.address.zip) : '' // preserve leading zeros
+      };
     } else if (schema.address.raw) {
       address = parseUSAddress(schema.address.raw);
     }
   }
   // Try to find address in text if schema didn't have it
   if (!address.street && !address.city) {
-    const addrMatch = bodyText.match(/\d+\s+[A-Z][a-zA-Z\s]+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy|Suite|Ste|Unit|#)\b[^.]*?,\s*[A-Za-z\s]+,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?/i);
+    // Broader regex: also match addresses without ZIP
+    const addrMatch = bodyText.match(/\d+\s+[A-Z][a-zA-Z\s.]+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy|Suite|Ste|Unit|#)\b[^.]*?,\s*[A-Za-z\s]+(?:,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i);
     if (addrMatch) address = parseUSAddress(addrMatch[0]);
   }
+  // Ensure ZIP preserves leading zeros
+  if (address.zip && /^\d{4}$/.test(address.zip)) address.zip = '0' + address.zip;
 
-  // 8. Country detection
+  // 10. Country detection
   const country = detectCountry(html, domain, schema.address, contact.phones);
 
-  // 9. Domain age (RDAP)
+  // 11. Domain age (RDAP)
   const domainAge = await getDomainAge(domain);
 
-  // 10. Meta description
+  // 12. Meta description
   const metaDescMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([\s\S]*?)["']/i);
-  const metaDescription = metaDescMatch ? metaDescMatch[1].trim() : og.description || schema.description || null;
+  const metaDescription = metaDescMatch ? decodeHTML(metaDescMatch[1].trim()) : og.description ? decodeHTML(og.description) : schema.description ? decodeHTML(schema.description) : null;
 
-  // 11. Business type/industry from schema
+  // 13. Business type/industry from schema
   const businessType = schema.type || null;
 
   return {
@@ -1095,6 +1198,10 @@ app.post('/api/extract-business', async (req, res) => {
 
   const domain = normalizeDomain(rawDomain);
   console.log(`\n[BIZ] ${domain}`);
+
+  // Check cache
+  const cached = cacheGet('biz:' + domain);
+  if (cached) { console.log(`  [CACHE HIT] ${domain}`); return res.json(cached); }
 
   try {
     const [dnsResults, httpResults] = await Promise.all([analyzeDNS(domain), analyzeHTTPStatus(domain)]);
@@ -1124,14 +1231,16 @@ app.post('/api/extract-business', async (req, res) => {
 
     const business = await extractBusinessInfo(html, domain);
     console.log(`  -> ${websiteStatus} | ${business.businessName} | Phones:${business.phones.length} Emails:${business.emails.length} | ${business.country.name}`);
-    res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business });
+    const bizResult = { domain, websiteStatus, reasons: contentAnalysis.reasons, business };
+    cacheSet('biz:' + domain, bizResult);
+    res.json(bizResult);
   } catch (err) {
     console.error(`  -> BIZ ERROR: ${err.message}`);
     res.status(500).json({ domain, error: 'Extraction failed', message: err.message });
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.0' }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.1', cache:CACHE.size }));
 
 app.listen(PORT, () => {
   console.log(`\n=== Website Intelligence v3.0 ===`);
