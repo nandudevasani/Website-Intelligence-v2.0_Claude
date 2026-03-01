@@ -22,7 +22,7 @@
     .tab{flex:1;padding:10px;background:none;border:none;border-radius:8px;color:var(--t2);font-size:.82rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif}
     .tab:hover{color:var(--t1)}.tab.active{background:var(--card);color:var(--t1);box-shadow:0 1px 4px rgba(0,0,0,.2)}
     input,textarea{font-family:'JetBrains Mono',monospace}
-    .search-section{display:flex;gap:10px;margin-bottom:2rem;max-width:700px;margin-left:auto;margin-right:auto}
+    .search-section{display:none;gap:10px;margin-bottom:2rem;max-width:700px;margin-left:auto;margin-right:auto}
     .search-input-wrap{flex:1;position:relative}
     .search-input-wrap .icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
     .sinput{width:100%;padding:14px 16px 14px 46px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;color:var(--t1);font-size:1rem;outline:none;transition:border-color .2s,box-shadow .2s}
@@ -32,7 +32,7 @@
     .btn-sm{padding:9px 18px;font-size:.82rem;border-radius:10px}
     .btn-csv{background:var(--grn)}.btn-csv:hover{background:#16a34a;box-shadow:0 4px 16px rgba(34,197,94,.3)}
     .btn-pur{background:var(--pur)}.btn-pur:hover{background:#9333ea}
-    .bulk-area{display:none;max-width:700px;margin:0 auto 2rem}.bulk-area.show{display:block}
+    .bulk-area{display:none;max-width:700px;margin:0 auto 2rem}
     .ta{width:100%;height:160px;padding:14px 16px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;color:var(--t1);font-size:.88rem;outline:none;resize:vertical;transition:border-color .2s,box-shadow .2s;margin-bottom:6px}
     .ta::placeholder{color:var(--t3)}.ta:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-g)}
     .count{font-size:.78rem;color:var(--t3);margin-bottom:10px;font-family:'JetBrains Mono',monospace}
@@ -43,7 +43,7 @@
     .pbar-wrap{max-width:400px;margin:1rem auto 0;background:var(--bg2);border-radius:8px;height:8px;overflow:hidden}
     .pbar{height:100%;background:linear-gradient(90deg,var(--acc),var(--grn));border-radius:8px;transition:width .3s;width:0%}
     .ptext{font-size:.78rem;color:var(--t3);margin-top:6px;font-family:'JetBrains Mono',monospace}
-    .results{display:none}.results.show{display:block}
+    .results-area{display:none}
     .status-hero{background:var(--card);border:1px solid var(--bdr);border-radius:16px;padding:2rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;position:relative;overflow:hidden}
     .status-hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
     .status-hero[data-c="green"]::before{background:linear-gradient(90deg,var(--grn),#10b981)}
@@ -51,60 +51,50 @@
     .status-hero[data-c="orange"]::before{background:linear-gradient(90deg,var(--org),#d97706)}
     .status-hero[data-c="yellow"]::before{background:linear-gradient(90deg,var(--yel),#ca8a04)}
     .status-hero[data-c="blue"]::before{background:linear-gradient(90deg,var(--blu),#2563eb)}
-    .si{width:64px;height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;flex-shrink:0}
+    .si{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0}
     .si.green{background:var(--grn-b)}.si.red{background:var(--red-b)}.si.orange{background:var(--org-b)}.si.yellow{background:var(--yel-b)}.si.blue{background:var(--blu-b)}
-    .sd{font-family:'JetBrains Mono',monospace;font-size:1.25rem;font-weight:700;margin-bottom:4px}
-    .sl{display:inline-flex;padding:4px 12px;border-radius:100px;font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+    .sd{font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:700;margin-bottom:4px}
+    .sl{display:inline-flex;padding:4px 12px;border-radius:100px;font-size:.76rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
     .sl.green{background:var(--grn-b);color:var(--grn)}.sl.red{background:var(--red-b);color:var(--red)}.sl.orange{background:var(--org-b);color:var(--org)}.sl.yellow{background:var(--yel-b);color:var(--yel)}.sl.blue{background:var(--blu-b);color:var(--blu)}
-    .sr{color:var(--t2);font-size:.88rem;margin-top:6px}
-    .sm{text-align:right;flex-shrink:0}.smi{font-size:.78rem;color:var(--t3);margin-bottom:4px}.smi span{color:var(--t2);font-family:'JetBrains Mono',monospace;font-weight:500}
-    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .sr{color:var(--t2);font-size:.86rem;margin-top:6px}
+    .sm{text-align:right;flex-shrink:0}.smi{font-size:.76rem;color:var(--t3);margin-bottom:3px}.smi span{color:var(--t2);font-family:'JetBrains Mono',monospace;font-weight:500}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:1rem;margin-bottom:1.5rem}
     .card{background:var(--card);border:1px solid var(--bdr);border-radius:14px;padding:1.5rem;transition:border-color .2s}.card:hover{border-color:var(--bdr-g)}
     .ch{display:flex;align-items:center;gap:10px;margin-bottom:1.25rem}
-    .ci{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem}
-    .ci.blue{background:var(--blu-b)}.ci.green{background:var(--grn-b)}.ci.purple{background:var(--pur-b)}.ci.cyan{background:var(--cyn-b)}.ci.orange{background:var(--org-b)}.ci.red{background:var(--red-b)}
-    .ct{font-weight:600;font-size:.95rem}
-    .ir{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bdr)}.ir:last-child{border-bottom:none}
-    .il{font-size:.82rem;color:var(--t3);font-weight:500}
-    .iv{font-family:'JetBrains Mono',monospace;font-size:.85rem;font-weight:500;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ci{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1rem}
+    .ci.blue{background:var(--blu-b)}.ci.green{background:var(--grn-b)}.ci.purple{background:var(--pur-b)}.ci.cyan{background:var(--cyn-b)}.ci.orange{background:var(--org-b)}
+    .ct{font-weight:600;font-size:.93rem}
+    .ir{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--bdr)}.ir:last-child{border-bottom:none}
+    .il{font-size:.8rem;color:var(--t3);font-weight:500}
+    .iv{font-family:'JetBrains Mono',monospace;font-size:.83rem;font-weight:500;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .iv.green{color:var(--grn)}.iv.red{color:var(--red)}.iv.orange{color:var(--org)}
     .card-full{grid-column:1/-1}
-    .cv{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;margin-bottom:1rem;font-weight:600;font-size:.92rem}
+    .cv{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;margin-bottom:1rem;font-weight:600;font-size:.9rem}
     .cv.green{background:var(--grn-b);color:var(--grn)}.cv.red{background:var(--red-b);color:var(--red)}.cv.orange{background:var(--org-b);color:var(--org)}.cv.yellow{background:var(--yel-b);color:var(--yel)}.cv.blue{background:var(--blu-b);color:var(--blu)}
-    .cv-c{margin-left:auto;font-size:.8rem;opacity:.8}
-    .cs{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px}
-    .csi{background:var(--bg2);border-radius:8px;padding:10px;text-align:center}
-    .csv{font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:700}.csl{font-size:.7rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+    .cv-c{margin-left:auto;font-size:.78rem;opacity:.8}
+    .cs{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}
+    .csi{background:var(--bg2);border-radius:8px;padding:9px;text-align:center}
+    .csv2{font-family:'JetBrains Mono',monospace;font-size:1rem;font-weight:700}.csl{font-size:.68rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
     .rb{background:var(--red-b);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px;margin-bottom:1rem}
-    .rb-t{font-size:.85rem;font-weight:700;color:var(--red);margin-bottom:8px}.rb-d{font-size:.82rem;color:var(--t2);padding:3px 0}.rb-d span{font-family:'JetBrains Mono',monospace;color:var(--t1)}
-    .fb{display:inline-block;padding:3px 10px;border-radius:6px;font-size:.72rem;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:.04em;margin:2px 4px 2px 0;background:var(--bg2);color:var(--t3)}.fb.warn{background:var(--red-b);color:var(--red)}.fb.info{background:var(--blu-b);color:var(--blu)}
-    .bulk-out{display:none}.bulk-out.show{display:block}
+    .rb-t{font-size:.84rem;font-weight:700;color:var(--red);margin-bottom:8px}.rb-d{font-size:.8rem;color:var(--t2);padding:3px 0}.rb-d span{font-family:'JetBrains Mono',monospace;color:var(--t1)}
+    .fb{display:inline-block;padding:3px 10px;border-radius:6px;font-size:.7rem;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:.04em;margin:2px 4px 2px 0;background:var(--bg2);color:var(--t3)}.fb.warn{background:var(--red-b);color:var(--red)}.fb.info{background:var(--blu-b);color:var(--blu)}
     .bsum{display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
-    .bsi{background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:1rem 1.5rem;text-align:center;flex:1;min-width:110px}
-    .bsv{font-family:'JetBrains Mono',monospace;font-size:1.4rem;font-weight:700}.bsl{font-size:.73rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+    .bsi{background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:.9rem 1.3rem;text-align:center;flex:1;min-width:100px}
+    .bsv{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:700}.bsl{font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
     .bact{display:flex;justify-content:flex-end;margin-bottom:1rem;gap:8px;flex-wrap:wrap}
     .btw{overflow-x:auto;border-radius:12px;border:1px solid var(--bdr)}
-    .bt{width:100%;border-collapse:collapse;font-size:.83rem}
+    .bt{width:100%;border-collapse:collapse;font-size:.82rem}
     .bt thead{background:var(--bg2)}
-    .bt th{padding:11px 12px;text-align:left;font-size:.72rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr);white-space:nowrap}
-    .bt td{padding:9px 12px;border-bottom:1px solid var(--bdr);vertical-align:top}.bt tr:last-child td{border-bottom:none}.bt tr:hover{background:var(--card-h)}
-    .bd{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.8rem}
-    .bsb{display:inline-block;padding:3px 9px;border-radius:6px;font-size:.7rem;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+    .bt th{padding:10px 11px;text-align:left;font-size:.7rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr);white-space:nowrap}
+    .bt td{padding:8px 11px;border-bottom:1px solid var(--bdr);vertical-align:top}.bt tr:last-child td{border-bottom:none}.bt tr:hover{background:var(--card-h)}
+    .bd{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.78rem}
+    .bsb{display:inline-block;padding:3px 8px;border-radius:6px;font-size:.68rem;font-weight:700;letter-spacing:.04em;white-space:nowrap}
     .bsb.ACTIVE{background:var(--grn-b);color:var(--grn)}.bsb.DEAD,.bsb.DOWN,.bsb.SUSPENDED{background:var(--red-b);color:var(--red)}.bsb.PARKED,.bsb.NO_CONTENT,.bsb.DEFAULT_PAGE,.bsb.SHELL_SITE{background:var(--org-b);color:var(--org)}.bsb.COMING_SOON,.bsb.ISSUES{background:var(--yel-b);color:var(--yel)}.bsb.CROSS_DOMAIN_REDIRECT{background:var(--red-b);color:var(--red)}.bsb.POLITICAL_CAMPAIGN{background:var(--blu-b);color:var(--blu)}.bsb.ERROR{background:var(--red-b);color:var(--red)}
     .bv{font-weight:700;font-size:.8rem}.bv.yes{color:var(--grn)}.bv.no{color:var(--red)}
-    .social-link{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:var(--bg2);border-radius:6px;font-size:.72rem;color:var(--acc);text-decoration:none;margin:2px;font-family:'JetBrains Mono',monospace;transition:background .2s}.social-link:hover{background:var(--card-h);color:var(--t1)}
+    .social-link{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:var(--bg2);border-radius:5px;font-size:.7rem;color:var(--acc);text-decoration:none;margin:2px;font-family:'JetBrains Mono',monospace;transition:background .2s}.social-link:hover{background:var(--card-h);color:var(--t1)}
     .error-box{display:none;background:var(--red-b);border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;color:var(--red);font-weight:500}.error-box.show{display:block}
-    .biz-card{background:var(--card);border:1px solid var(--bdr);border-radius:14px;padding:1.5rem;margin-bottom:1rem}
-    .biz-name{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:700;margin-bottom:.5rem}
-    .biz-type{display:inline-block;padding:3px 10px;border-radius:6px;font-size:.72rem;font-weight:700;background:var(--pur-b);color:var(--pur);margin-bottom:.75rem}
-    .biz-row{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
-    .biz-col{flex:1;min-width:280px;background:var(--bg2);border-radius:10px;padding:1rem}
-    .biz-section{font-size:.72rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.75rem}
-    .biz-item{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bdr);font-size:.83rem}.biz-item:last-child{border-bottom:none}
-    .biz-label{color:var(--t3);font-weight:500}.biz-val{font-family:'JetBrains Mono',monospace;font-weight:500;text-align:right;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t1)}
-    .biz-val a{color:var(--acc);text-decoration:none}.biz-val a:hover{text-decoration:underline}
-    .socials-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-    @media(max-width:640px){.header h1{font-size:1.4rem}.search-section{flex-direction:column}.status-hero{flex-direction:column;text-align:center}.sm{text-align:center}.cards{grid-template-columns:1fr}.cs{grid-template-columns:repeat(2,1fr)}.bt{font-size:.76rem}.bt th,.bt td{padding:7px 8px}.biz-row{flex-direction:column}}
+    .mono{font-family:'JetBrains Mono',monospace}
+    @media(max-width:640px){.header h1{font-size:1.4rem}.search-section{flex-direction:column}.status-hero{flex-direction:column;text-align:center}.sm{text-align:center}.cards{grid-template-columns:1fr}.cs{grid-template-columns:repeat(2,1fr)}.bt{font-size:.74rem}.bt th,.bt td{padding:6px 7px}}
   </style>
 </head>
 <body>
@@ -113,16 +103,13 @@
   <header class="header">
     <div class="header-badge"><span class="dot"></span> Intelligence Engine v3.0</div>
     <h1>Website Intelligence</h1>
-    <p>Domain analysis, content detection, business information extraction & social signals.</p>
+    <p>Domain analysis, content detection, business extraction & social signals.</p>
   </header>
-
   <div class="tabs">
     <button class="tab active" data-tab="single" onclick="switchTab('single')">Single Domain</button>
     <button class="tab" data-tab="bulk" onclick="switchTab('bulk')">Bulk Analysis</button>
     <button class="tab" data-tab="biz" onclick="switchTab('biz')">Business Info</button>
   </div>
-
-  <!-- SINGLE -->
   <div class="search-section" id="sec-single">
     <div class="search-input-wrap">
       <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -130,172 +117,162 @@
     </div>
     <button class="btn" onclick="doSingle()">Analyze</button>
   </div>
-
-  <!-- BULK -->
   <div class="bulk-area" id="sec-bulk">
-    <textarea class="ta" id="bulk-ta" placeholder="Enter domains, one per line (max 100):&#10;example.com&#10;google.com" oninput="updateBulkCount()"></textarea>
-    <div class="count" id="bulk-count">0 domains (max 100)</div>
+    <textarea class="ta" id="bulk-ta" placeholder="Enter domains, one per line (max 100):&#10;example.com&#10;google.com" oninput="updateCt('bulk-ta','bulk-ct')"></textarea>
+    <div class="count" id="bulk-ct">0 domains (max 100)</div>
     <button class="btn" id="bulk-btn" onclick="doBulk()" style="width:100%">Analyze All Domains</button>
   </div>
-
-  <!-- BUSINESS -->
   <div class="bulk-area" id="sec-biz">
-    <textarea class="ta" id="biz-ta" placeholder="Enter domains for business extraction (max 100):&#10;bocasmilecenter.com&#10;millerandsonsplumbing.net" oninput="updateBizCount()"></textarea>
-    <div class="count" id="biz-count">0 domains (max 100)</div>
+    <textarea class="ta" id="biz-ta" placeholder="Enter domains for business extraction (max 100):&#10;bocasmilecenter.com&#10;millerandsonsplumbing.net" oninput="updateCt('biz-ta','biz-ct')"></textarea>
+    <div class="count" id="biz-ct">0 domains (max 100)</div>
     <button class="btn btn-pur" id="biz-btn" onclick="doBiz()" style="width:100%">Extract Business Info</button>
   </div>
-
   <div class="error-box" id="errbox"></div>
-  <div class="loader" id="loader"><div class="spinner"></div><div class="loader-text">Analyzing <span class="loader-hl" id="loader-hl">...</span></div><div class="loader-text" style="margin-top:4px;font-size:.78rem;color:var(--t3)" id="loader-sub">Checking DNS, SSL, HTTP & content...</div><div class="pbar-wrap" id="pbar-wrap" style="display:none"><div class="pbar" id="pbar"></div></div><div class="ptext" id="ptext" style="display:none"></div></div>
-
-  <div class="results" id="single-results"></div>
-  <div class="bulk-out" id="bulk-out"></div>
-  <div class="bulk-out" id="biz-out"></div>
+  <div class="loader" id="loader"><div class="spinner"></div><div class="loader-text">Processing <span class="loader-hl" id="loader-hl">...</span></div><div class="loader-text" style="margin-top:4px;font-size:.78rem;color:var(--t3)" id="loader-sub"></div><div class="pbar-wrap" id="pbar-wrap" style="display:none"><div class="pbar" id="pbar"></div></div><div class="ptext" id="ptext" style="display:none"></div></div>
+  <div class="results-area" id="res-single"></div>
+  <div class="results-area" id="res-bulk"></div>
+  <div class="results-area" id="res-biz"></div>
 </div>
-
 <script>
 const API=window.location.origin;
 let bulkData=null,bizData=null;
 
-// === TAB SWITCHING ===
 function switchTab(t){
   document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
   document.querySelector('[data-tab="'+t+'"]').classList.add('active');
-  ['sec-single','sec-bulk','sec-biz'].forEach(id=>{const e=document.getElementById(id);e.classList.remove('show');e.style.display='none'});
-  ['single-results','bulk-out','biz-out','errbox'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  // Hide inputs only — results stay visible
+  document.getElementById('sec-single').style.display=t==='single'?'flex':'none';
+  document.getElementById('sec-bulk').style.display=t==='bulk'?'block':'none';
+  document.getElementById('sec-biz').style.display=t==='biz'?'block':'none';
+  // Show matching results, hide others
+  document.getElementById('res-single').style.display=t==='single'?'block':'none';
+  document.getElementById('res-bulk').style.display=t==='bulk'?'block':'none';
+  document.getElementById('res-biz').style.display=t==='biz'?'block':'none';
+  document.getElementById('errbox').classList.remove('show');
   document.getElementById('loader').classList.remove('show');
-  if(t==='single'){document.getElementById('sec-single').style.display='flex'}
-  else if(t==='bulk'){const e=document.getElementById('sec-bulk');e.style.display='block';e.classList.add('show')}
-  else if(t==='biz'){const e=document.getElementById('sec-biz');e.style.display='block';e.classList.add('show')}
 }
-function updateBulkCount(){const c=document.getElementById('bulk-ta').value.trim().split('\n').filter(d=>d.trim()).length;const e=document.getElementById('bulk-count');e.textContent=c+' domain'+(c!==1?'s':'')+' (max 100)';e.style.color=c>100?'var(--red)':'var(--t3)'}
-function updateBizCount(){const c=document.getElementById('biz-ta').value.trim().split('\n').filter(d=>d.trim()).length;const e=document.getElementById('biz-count');e.textContent=c+' domain'+(c!==1?'s':'')+' (max 100)';e.style.color=c>100?'var(--red)':'var(--t3)'}
+function updateCt(taId,ctId){const c=document.getElementById(taId).value.trim().split('\n').filter(d=>d.trim()).length;const e=document.getElementById(ctId);e.textContent=c+' domain'+(c!==1?'s':'')+' (max 100)';e.style.color=c>100?'var(--red)':'var(--t3)'}
 document.getElementById('single-input').addEventListener('keydown',e=>{if(e.key==='Enter')doSingle()});
 
 // === HELPERS ===
 function E(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-function T(s,n){return s.length>n?s.substring(0,n)+'…':s}
-function rows(arr){return arr.map(([l,v,c])=>'<div class="ir"><span class="il">'+l+'</span><span class="iv'+(c?' '+c:'')+'">'+E(String(v))+'</span></div>').join('')}
-function stat(v,l){return'<div class="csi"><div class="csv">'+v+'</div><div class="csl">'+l+'</div></div>'}
+function T(s,n){return s&&s.length>n?s.substring(0,n)+'…':s||''}
+function rows(a){return a.map(([l,v,c])=>'<div class="ir"><span class="il">'+l+'</span><span class="iv'+(c?' '+c:'')+'">'+E(String(v||'—'))+'</span></div>').join('')}
+function stat(v,l){return'<div class="csi"><div class="csv2">'+v+'</div><div class="csl">'+l+'</div></div>'}
 function sumBox(v,l,c){return'<div class="bsi"><div class="bsv" style="color:var('+c+')">'+v+'</div><div class="bsl">'+l+'</div></div>'}
-function showLoader(t,sub){document.getElementById('loader-hl').textContent=t;document.getElementById('loader-sub').textContent=sub||'Checking DNS, SSL, HTTP & content...';document.getElementById('loader').classList.add('show')}
+function showLoader(t,sub){document.getElementById('loader-hl').textContent=t;document.getElementById('loader-sub').textContent=sub||'';document.getElementById('loader').classList.add('show')}
 function hideLoader(){document.getElementById('loader').classList.remove('show');document.getElementById('pbar-wrap').style.display='none';document.getElementById('ptext').style.display='none'}
-function hideAll(){['single-results','bulk-out','biz-out','errbox'].forEach(id=>document.getElementById(id).classList.remove('show'))}
 function showErr(m){const e=document.getElementById('errbox');e.textContent=m;e.classList.add('show')}
 function showProgress(c,t,d){document.getElementById('pbar-wrap').style.display='block';document.getElementById('ptext').style.display='block';const p=t>0?Math.round(c/t*100):0;document.getElementById('pbar').style.width=p+'%';document.getElementById('ptext').textContent=c+'/'+t+' done'+(d?' — '+d:'');document.getElementById('loader-hl').textContent=c+'/'+t}
-const statusEmoji=s=>({ACTIVE:'✓',DEAD:'✗',DOWN:'✗',PARKED:'⊘',COMING_SOON:'◔',NO_CONTENT:'○',DEFAULT_PAGE:'▤',SUSPENDED:'⊘',SHELL_SITE:'◇',CROSS_DOMAIN_REDIRECT:'↯',POLITICAL_CAMPAIGN:'★',ISSUES:'!'}[s]||'?');
-const fmtS=s=>({ACTIVE:'Active',DEAD:'Dead',DOWN:'Down',PARKED:'Parked / For Sale',COMING_SOON:'Coming Soon',NO_CONTENT:'No Content',DEFAULT_PAGE:'Default Page',SUSPENDED:'Suspended',SHELL_SITE:'Shell Site',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign',ISSUES:'Issues',ERROR:'Error'}[s]||s);
-const fmtV=v=>({VALID:'Genuine Active Website',PARKED:'Parked Domain / For Sale',COMING_SOON:'Coming Soon',NO_CONTENT:'No Meaningful Content',DEFAULT_PAGE:'Default Server Page',SUSPENDED:'Suspended',SHELL_SITE:'Template Shell',CROSS_DOMAIN_REDIRECT:'Redirects to Unrelated Domain',POLITICAL_CAMPAIGN:'Political Campaign Site'}[v]||v);
-const vColor=v=>({VALID:'green',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue'}[v]||'orange');
-const vEmoji=v=>({VALID:'✅',PARKED:'🅿️',COMING_SOON:'🚧',NO_CONTENT:'📭',DEFAULT_PAGE:'📄',SUSPENDED:'🚫',SHELL_SITE:'🏗️',CROSS_DOMAIN_REDIRECT:'⚠️',POLITICAL_CAMPAIGN:'🏛️'}[v]||'❓');
+const fmtS=s=>({ACTIVE:'Active',DEAD:'Dead',DOWN:'Down',PARKED:'Parked',COMING_SOON:'Coming Soon',NO_CONTENT:'No Content',DEFAULT_PAGE:'Default Page',SUSPENDED:'Suspended',SHELL_SITE:'Shell Site',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign',ISSUES:'Issues',ERROR:'Error'}[s]||s);
+const sEmoji=s=>({ACTIVE:'✓',DEAD:'✗',DOWN:'✗',PARKED:'⊘',COMING_SOON:'◔',NO_CONTENT:'○',DEFAULT_PAGE:'▤',SUSPENDED:'⊘',SHELL_SITE:'◇',CROSS_DOMAIN_REDIRECT:'↯',POLITICAL_CAMPAIGN:'★',ISSUES:'!'}[s]||'?');
+const fmtV=v=>({VALID:'Genuine Active Website',PARKED:'Parked / For Sale',COMING_SOON:'Coming Soon',NO_CONTENT:'No Meaningful Content',DEFAULT_PAGE:'Default Server Page',SUSPENDED:'Suspended',SHELL_SITE:'Template Shell',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign'}[v]||v);
+const vC=v=>({VALID:'green',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue'}[v]||'orange');
+const vE=v=>({VALID:'✅',PARKED:'🅿️',COMING_SOON:'🚧',NO_CONTENT:'📭',DEFAULT_PAGE:'📄',SUSPENDED:'🚫',SHELL_SITE:'🏗️',CROSS_DOMAIN_REDIRECT:'⚠️',POLITICAL_CAMPAIGN:'🏛️'}[v]||'❓');
+const sColor=s=>({ACTIVE:'green',DEAD:'red',DOWN:'red',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue',ISSUES:'yellow'}[s]||'orange');
 
 // ═══════════════════════════════════════
-// SINGLE DOMAIN ANALYSIS
+// SINGLE DOMAIN
 // ═══════════════════════════════════════
 async function doSingle(){
-  const d=document.getElementById('single-input').value.trim();if(!d)return;hideAll();showLoader(d);
-  try{
-    const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:d})});
-    if(!r.ok)throw new Error('Failed');renderSingle(await r.json());
-  }catch(e){showErr('Failed: '+e.message)}finally{hideLoader()}
+  const d=document.getElementById('single-input').value.trim();if(!d)return;
+  document.getElementById('errbox').classList.remove('show');showLoader(d,'Checking DNS, SSL, HTTP & content...');
+  try{const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:d})});if(!r.ok)throw new Error('Failed');renderSingle(await r.json())}catch(e){showErr('Failed: '+e.message)}finally{hideLoader()}
 }
 function renderSingle(d){
-  const el=document.getElementById('single-results');el.classList.add('show');
+  const el=document.getElementById('res-single');el.style.display='block';
   const c=d.statusColor||'gray';
-  let h='<div class="status-hero" data-c="'+c+'"><div class="si '+c+'">'+statusEmoji(d.overallStatus)+'</div><div style="flex:1"><div class="sd">'+E(d.domain)+'</div><span class="sl '+c+'">'+fmtS(d.overallStatus)+'</span><div class="sr">'+(d.content?.reasons?.[0]||'')+'</div></div><div class="sm"><div class="smi">Response <span>'+(d.http?.responseTime?d.http.responseTime+'ms':'—')+'</span></div><div class="smi">HTTP <span>'+(d.http?.statusCode||'—')+'</span></div><div class="smi">SSL <span>'+(d.ssl?.valid?'✓ Valid':'✗ Invalid')+'</span></div></div></div>';
+  let h='<div class="status-hero" data-c="'+c+'"><div class="si '+c+'">'+sEmoji(d.overallStatus)+'</div><div style="flex:1"><div class="sd">'+E(d.domain)+'</div><span class="sl '+c+'">'+fmtS(d.overallStatus)+'</span><div class="sr">'+(d.content?.reasons?.[0]||'')+'</div></div><div class="sm"><div class="smi">Response <span>'+(d.http?.responseTime?d.http.responseTime+'ms':'—')+'</span></div><div class="smi">HTTP <span>'+(d.http?.statusCode||'—')+'</span></div><div class="smi">SSL <span>'+(d.ssl?.valid?'✓ Valid':'✗')+'</span></div></div></div>';
   h+='<div class="cards">';
-  h+='<div class="card"><div class="ch"><div class="ci blue">⚡</div><div class="ct">HTTP</div></div>'+rows([['Status',d.http?.statusCode?d.http.statusCode+' '+(d.http.statusText||''):'N/A',d.http?.statusCode>=200&&d.http?.statusCode<400?'green':'red'],['Response',d.http?.responseTime?d.http.responseTime+'ms':'N/A',d.http?.responseTime<1000?'green':d.http?.responseTime<3000?'orange':'red'],['Final URL',T(d.http?.finalUrl||'N/A',40)],['Up',d.http?.isUp?'Yes':'No',d.http?.isUp?'green':'red']])+'</div>';
-  const ssl=d.ssl||{};h+='<div class="card"><div class="ch"><div class="ci green">🔒</div><div class="ct">SSL</div></div>'+rows([['Valid',ssl.valid?'Yes':'No',ssl.valid?'green':'red'],['Issuer',ssl.issuer||'N/A'],['Days Left',ssl.daysRemaining!=null?ssl.daysRemaining+'d':'N/A',ssl.daysRemaining>30?'green':ssl.daysRemaining>0?'orange':'red'],['Protocol',ssl.protocol||'N/A']])+'</div>';
+  h+='<div class="card"><div class="ch"><div class="ci blue">⚡</div><div class="ct">HTTP</div></div>'+rows([['Status',d.http?.statusCode?d.http.statusCode+' '+(d.http.statusText||''):'N/A',d.http?.statusCode>=200&&d.http?.statusCode<400?'green':'red'],['Response',d.http?.responseTime?d.http.responseTime+'ms':'N/A'],['Final URL',T(d.http?.finalUrl,40)],['Up',d.http?.isUp?'Yes':'No',d.http?.isUp?'green':'red']])+'</div>';
+  const ssl=d.ssl||{};h+='<div class="card"><div class="ch"><div class="ci green">🔒</div><div class="ct">SSL</div></div>'+rows([['Valid',ssl.valid?'Yes':'No',ssl.valid?'green':'red'],['Issuer',ssl.issuer],['Days Left',ssl.daysRemaining!=null?ssl.daysRemaining+'d':'N/A',ssl.daysRemaining>30?'green':'red'],['Protocol',ssl.protocol]])+'</div>';
   const dns=d.dns||{};h+='<div class="card"><div class="ch"><div class="ci purple">🌐</div><div class="ct">DNS</div></div>'+rows([['A',dns.aRecords?.length>0?dns.aRecords.join(', '):'None',dns.hasARecord?'green':'red'],['MX',dns.mxRecords?.length>0?dns.mxRecords.map(m=>m.exchange).join(', '):'None'],['NS',dns.nsRecords?.length>0?dns.nsRecords.slice(0,3).join(', '):'None']])+'</div>';
   h+='<div class="card"><div class="ch"><div class="ci cyan">🖥</div><div class="ct">Server</div></div>'+rows([['Server',d.http?.headers?.server||'—'],['Powered By',d.http?.headers?.poweredBy||'—'],['Type',d.http?.headers?.contentType||'—']])+'</div>';
-  const ct=d.content||{};const vc=vColor(ct.verdict);
+  const ct=d.content||{};const vc=vC(ct.verdict);
   h+='<div class="card card-full"><div class="ch"><div class="ci orange">📊</div><div class="ct">Content Intelligence</div></div>';
-  h+='<div class="cv '+vc+'"><span style="font-size:1.2rem">'+vEmoji(ct.verdict)+'</span><span>'+fmtV(ct.verdict)+'</span><span class="cv-c">'+(ct.confidence||0)+'%</span></div>';
-  if(ct.reasons?.length>0)h+='<div style="color:var(--t2);font-size:.84rem;margin-bottom:1rem">'+ct.reasons.map(r=>'• '+E(r)).join('<br>')+'</div>';
-  if(ct.redirectInfo){h+='<div class="rb"><div class="rb-t">⚠ Cross-Domain Redirect</div><div class="rb-d">From: <span>'+E(ct.redirectInfo.source)+'</span></div><div class="rb-d">To: <span>'+E(ct.redirectInfo.target)+'</span></div><div class="rb-d">Method: <span>'+E(ct.redirectInfo.method)+'</span></div></div>'}
+  h+='<div class="cv '+vc+'"><span style="font-size:1.1rem">'+vE(ct.verdict)+'</span><span>'+fmtV(ct.verdict)+'</span><span class="cv-c">'+(ct.confidence||0)+'%</span></div>';
+  if(ct.reasons?.length>0)h+='<div style="color:var(--t2);font-size:.82rem;margin-bottom:1rem">'+ct.reasons.map(r=>'• '+E(r)).join('<br>')+'</div>';
+  if(ct.redirectInfo)h+='<div class="rb"><div class="rb-t">⚠ Cross-Domain Redirect</div><div class="rb-d">From: <span>'+E(ct.redirectInfo.source)+'</span></div><div class="rb-d">To: <span>'+E(ct.redirectInfo.target)+'</span></div><div class="rb-d">Method: <span>'+E(ct.redirectInfo.method)+'</span></div></div>';
   h+='<div class="cs" style="margin-top:1rem">'+stat(ct.details?.wordCount||0,'Words')+stat(ct.details?.uniqueWordCount||0,'Unique')+stat(ct.details?.headings?.length||0,'Headings')+stat(ct.details?.images||0,'Images')+stat(ct.details?.links?.internal||0,'Int Links')+stat(ct.details?.forms||0,'Forms')+'</div>';
-  if(ct.details?.title)h+='<div style="margin-top:1rem;padding:10px 14px;background:var(--bg2);border-radius:8px"><span style="font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Page Title</span><br><span style="font-family:\'JetBrains Mono\',monospace;font-size:.84rem">'+E(ct.details.title)+'</span></div>';
+  if(ct.details?.title)h+='<div style="margin-top:1rem;padding:9px 13px;background:var(--bg2);border-radius:8px"><span style="font-size:.7rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Title</span><br><span class="mono" style="font-size:.82rem">'+E(ct.details.title)+'</span></div>';
   if(ct.flags?.length>0){h+='<div style="margin-top:10px">';ct.flags.forEach(f=>{const w=['CROSS_DOMAIN_REDIRECT','SUSPICIOUS_REDIRECT_TARGET','SHELL_SITE','PARKED'].includes(f);const i=['POLITICAL_CAMPAIGN','HAS_FEC_DISCLOSURE','WEB_APP_LOGIN'].includes(f);h+='<span class="fb '+(w?'warn':i?'info':'')+'">'+f.replace(/_/g,' ')+'</span>'});h+='</div>'}
   h+='</div></div>';el.innerHTML=h;
 }
 
 // ═══════════════════════════════════════
-// BULK ANALYSIS (Sequential)
+// BULK ANALYSIS
 // ═══════════════════════════════════════
 async function doBulk(){
   const txt=document.getElementById('bulk-ta').value.trim();if(!txt)return;
   const doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
   if(!doms.length)return;if(doms.length>100){showErr('Max 100 domains');return}
-  hideAll();showLoader('0/'+doms.length+' domains','Analyzing domains sequentially...');showProgress(0,doms.length,'');
+  document.getElementById('errbox').classList.remove('show');showLoader('0/'+doms.length,'Analyzing domains sequentially...');showProgress(0,doms.length,'');
   const btn=document.getElementById('bulk-btn');btn.disabled=true;const results=[];
-  for(let i=0;i<doms.length;i++){
-    showProgress(i,doms.length,doms[i]);
+  for(let i=0;i<doms.length;i++){showProgress(i,doms.length,doms[i]);
     try{const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:doms[i]})});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
     results.push({domain:d.domain,overallStatus:d.overallStatus,isGenuinelyValid:d.isGenuinelyValid,statusCode:d.http?.statusCode,confidence:d.content?.confidence,reasons:d.content?.reasons||[],flags:d.content?.flags||[],redirectInfo:d.content?.redirectInfo,title:d.content?.details?.title,wordCount:d.content?.details?.wordCount,uniqueWordCount:d.content?.details?.uniqueWordCount})}
     catch(e){results.push({domain:doms[i],overallStatus:'ERROR',isGenuinelyValid:false,error:e.message,reasons:[e.message],flags:[]})}}
   btn.disabled=false;hideLoader();bulkData=results;renderBulk(results);
 }
 function renderBulk(res){
-  const el=document.getElementById('bulk-out');el.classList.add('show');
+  const el=document.getElementById('res-bulk');el.style.display='block';
   const ok=res.filter(r=>r.isGenuinelyValid).length,bad=res.filter(r=>!r.isGenuinelyValid&&r.overallStatus!=='ERROR').length,err=res.filter(r=>r.overallStatus==='ERROR').length;
   let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Valid','--grn')+sumBox(bad,'Invalid','--org')+sumBox(err,'Errors','--red')+'</div>';
-  h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBulkCSV()">⬇ Export Analysis CSV</button></div>';
-  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Valid?</th><th>Title</th><th>HTTP</th><th>Words</th><th>Confidence</th><th>Redirect Target</th><th>Flags</th><th>Remarks / Reason</th></tr></thead><tbody>';
+  h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBulkCSV()">⬇ Analysis CSV</button></div>';
+  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Valid?</th><th>Title</th><th>HTTP</th><th>Words</th><th>Confidence</th><th>Redirect Target</th><th>Flags</th><th>Remarks</th></tr></thead><tbody>';
   res.forEach((r,i)=>{
-    h+='<tr><td style="color:var(--t3);font-family:\'JetBrains Mono\';font-size:.76rem">'+(i+1)+'</td>';
+    h+='<tr><td style="color:var(--t3)" class="mono" style="font-size:.74rem">'+(i+1)+'</td>';
     h+='<td><span class="bd">'+E(r.domain)+'</span></td>';
     h+='<td><span class="bsb '+r.overallStatus+'">'+fmtS(r.overallStatus)+'</span></td>';
-    h+='<td><span class="bv '+(r.isGenuinelyValid?'yes':'no')+'">'+(r.isGenuinelyValid?'✓ YES':'✗ NO')+'</span></td>';
-    h+='<td style="font-size:.78rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.title||'—')+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.8rem">'+(r.statusCode||'—')+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.8rem">'+(r.wordCount??'—')+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.8rem">'+(r.confidence?r.confidence+'%':'—')+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.76rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.redirectInfo?.target||'—')+'</td>';
-    h+='<td style="font-size:.76rem;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.flags?.join(', ')||'—')+'</td>';
-    h+='<td style="color:var(--t2);font-size:.78rem;max-width:220px">'+E((r.reasons?.[0]||r.error||'—').substring(0,120))+'</td></tr>'});
+    h+='<td><span class="bv '+(r.isGenuinelyValid?'yes':'no')+'">'+(r.isGenuinelyValid?'✓':'✗')+'</span></td>';
+    h+='<td style="font-size:.76rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.title||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+(r.statusCode||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+(r.wordCount??'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+(r.confidence?r.confidence+'%':'—')+'</td>';
+    h+='<td class="mono" style="font-size:.74rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.redirectInfo?.target||'—')+'</td>';
+    h+='<td style="font-size:.74rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.flags?.join(', ')||'—')+'</td>';
+    h+='<td style="color:var(--t2);font-size:.76rem;max-width:200px">'+E((r.reasons?.[0]||r.error||'—').substring(0,100))+'</td></tr>'});
   h+='</tbody></table></div>';el.innerHTML=h;
 }
 
 // ═══════════════════════════════════════
-// BUSINESS INFO EXTRACTION (Sequential)
+// BUSINESS INFO EXTRACTION
 // ═══════════════════════════════════════
 async function doBiz(){
   const txt=document.getElementById('biz-ta').value.trim();if(!txt)return;
   const doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
   if(!doms.length)return;if(doms.length>100){showErr('Max 100 domains');return}
-  hideAll();showLoader('0/'+doms.length,'Extracting business info...');showProgress(0,doms.length,'');
+  document.getElementById('errbox').classList.remove('show');showLoader('0/'+doms.length,'Extracting business info...');showProgress(0,doms.length,'');
   const btn=document.getElementById('biz-btn');btn.disabled=true;const results=[];
-  for(let i=0;i<doms.length;i++){
-    showProgress(i,doms.length,doms[i]);
-    try{const r=await fetch(API+'/api/extract-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:doms[i]})});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();results.push({domain:d.domain,...(d.business||{}),error:d.error||null})}
-    catch(e){results.push({domain:doms[i],error:e.message})}}
+  for(let i=0;i<doms.length;i++){showProgress(i,doms.length,doms[i]);
+    try{const r=await fetch(API+'/api/extract-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:doms[i]})});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
+    results.push({domain:d.domain,websiteStatus:d.websiteStatus||'UNKNOWN',reasons:d.reasons||[],...(d.business||{}),error:d.error||null})}
+    catch(e){results.push({domain:doms[i],websiteStatus:'ERROR',error:e.message,reasons:[e.message]})}}
   btn.disabled=false;hideLoader();bizData=results;renderBiz(results);
 }
 function renderBiz(res){
-  const el=document.getElementById('biz-out');el.classList.add('show');
+  const el=document.getElementById('res-biz');el.style.display='block';
   const ok=res.filter(r=>r.businessName&&!r.error).length;
-  let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Extracted','--grn')+sumBox(res.length-ok,'Failed','--red')+'</div>';
-  h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBizCSV()">⬇ Business Info CSV</button><button class="btn btn-sm btn-pur" onclick="exportCombinedCSV()">⬇ Combined CSV</button></div>';
-  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Business Name</th><th>Phone</th><th>Email</th><th>City</th><th>State</th><th>Country</th><th>Domain Age</th><th>Socials</th></tr></thead><tbody>';
+  let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Extracted','--grn')+sumBox(res.length-ok,'Failed/Empty','--red')+'</div>';
+  h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBizCSV()">⬇ Business CSV</button><button class="btn btn-sm btn-pur" onclick="exportCombinedCSV()">⬇ Combined CSV</button></div>';
+  // Table columns: Domain | Website Status | Country | Business Name | Street | City | State | Zip | Phone | Email | Domain Age | Socials
+  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Country</th><th>Business Name</th><th>Street</th><th>City</th><th>State</th><th>ZIP</th><th>Phone</th><th>Email</th><th>Age</th><th>Socials</th></tr></thead><tbody>';
   res.forEach((r,i)=>{
-    const phone=r.phones?.length?r.phones[0]:'—';
-    const email=r.emails?.length?r.emails[0]:'—';
-    const city=r.address?.city||'—';
-    const state=r.address?.state||'—';
-    const country=r.country?.name||'—';
-    const age=r.domainAge?.ageYears?r.domainAge.ageYears+'y':'—';
+    const a=r.address||{};const sc=sColor(r.websiteStatus);
     let soc='';
-    if(r.socials){const s=r.socials;['facebook','instagram','twitter','linkedin','youtube','tiktok','yelp','pinterest'].forEach(k=>{if(s[k])soc+='<a class="social-link" href="'+E(s[k])+'" target="_blank" rel="noopener">'+k.charAt(0).toUpperCase()+k.slice(1,3)+'</a>'})}
-    if(!soc)soc='—';
-    h+='<tr><td style="color:var(--t3);font-family:\'JetBrains Mono\';font-size:.76rem">'+(i+1)+'</td>';
+    if(r.socials){['facebook','linkedin','instagram','twitter','youtube','tiktok','yelp','pinterest'].forEach(k=>{if(r.socials[k])soc+='<a class="social-link" href="'+E(r.socials[k])+'" target="_blank" rel="noopener">'+k.substring(0,2).toUpperCase()+'</a>'})}
+    h+='<tr><td class="mono" style="font-size:.72rem;color:var(--t3)">'+(i+1)+'</td>';
     h+='<td><span class="bd">'+E(r.domain)+'</span></td>';
-    h+='<td style="font-size:.82rem;font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.businessName||r.error||'—')+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.78rem;white-space:nowrap">'+E(phone)+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.76rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(email)+'</td>';
-    h+='<td style="font-size:.8rem">'+E(city)+'</td>';
-    h+='<td style="font-size:.8rem">'+E(state)+'</td>';
-    h+='<td style="font-size:.8rem">'+E(country)+'</td>';
-    h+='<td style="font-family:\'JetBrains Mono\';font-size:.8rem">'+E(age)+'</td>';
+    h+='<td><span class="bsb '+(r.websiteStatus||'')+'">'+fmtS(r.websiteStatus||'UNKNOWN')+'</span></td>';
+    h+='<td class="mono" style="font-size:.76rem">'+(r.country?.code||'—')+'</td>';
+    h+='<td style="font-size:.8rem;font-weight:600;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.businessName||r.error||'—')+'</td>';
+    h+='<td style="font-size:.76rem;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(a.street||'—')+'</td>';
+    h+='<td style="font-size:.78rem">'+E(a.city||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+E(a.state||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+E(a.zip||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.76rem;white-space:nowrap">'+E(r.phones?.[0]||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.72rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.emails?.[0]||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.76rem">'+(r.domainAge?.ageFormatted||'—')+'</td>';
     h+='<td>'+soc+'</td></tr>'});
   h+='</tbody></table></div>';el.innerHTML=h;
 }
@@ -303,37 +280,33 @@ function renderBiz(res){
 // ═══════════════════════════════════════
 // CSV EXPORTS
 // ═══════════════════════════════════════
-function downloadCSV(filename,csv){const b=new Blob([csv],{type:'text/csv;charset=utf-8;'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
-function csvRow(cells){return cells.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')+'\n'}
+function dl(fn,csv){const b=new Blob([csv],{type:'text/csv;charset=utf-8;'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
+function cr(cells){return cells.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')+'\n'}
+const today=new Date().toISOString().split('T')[0];
 
 function exportBulkCSV(){
   if(!bulkData?.length){showErr('No bulk results');return}
-  let csv=csvRow(['Domain','Status','Valid','Title','HTTP Code','Word Count','Confidence','Redirect Target','Flags','Remarks']);
-  bulkData.forEach(r=>csv+=csvRow([r.domain,fmtS(r.overallStatus),r.isGenuinelyValid?'TRUE':'FALSE',r.title||'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; '),r.reasons?.[0]||r.error||'']));
-  downloadCSV('bulk-analysis-'+new Date().toISOString().split('T')[0]+'.csv',csv);
+  let csv=cr(['Domain','Status','Valid','Title','HTTP Code','Word Count','Confidence','Redirect Target','Flags','Remarks']);
+  bulkData.forEach(r=>csv+=cr([r.domain,fmtS(r.overallStatus),r.isGenuinelyValid?'TRUE':'FALSE',r.title||'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; '),r.reasons?.[0]||r.error||'']));
+  dl('bulk-analysis-'+today+'.csv',csv);
 }
-
 function exportBizCSV(){
   if(!bizData?.length){showErr('No business results');return}
-  let csv=csvRow(['Domain','Business Name','Phone','Email','Full Address','Street','City','State','ZIP','Country','Country Code','Domain Age (Years)','Registration Date','Facebook','Instagram','Twitter','LinkedIn','YouTube','TikTok','Yelp','Pinterest','Business Type','Meta Description']);
-  bizData.forEach(r=>{
-    const s=r.socials||{};const a=r.address||{};const da=r.domainAge||{};
-    csv+=csvRow([r.domain,r.businessName||'',r.phones?.[0]||'',r.emails?.[0]||'',a.fullAddress||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.country?.name||'',r.country?.code||'',da.ageYears||'',da.registrationDate||'',s.facebook||'',s.instagram||'',s.twitter||'',s.linkedin||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.businessType||'',r.metaDescription||''])});
-  downloadCSV('business-info-'+new Date().toISOString().split('T')[0]+'.csv',csv);
+  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Remarks','Reasons','Meta Description']);
+  bizData.forEach(r=>{const s=r.socials||{};const a=r.address||{};const da=r.domainAge||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',da.ageFormatted||'',r.reasons?.[0]||r.error||'',r.metaDescription||''])});
+  dl('business-info-'+today+'.csv',csv);
 }
-
 function exportCombinedCSV(){
-  if(!bizData?.length&&!bulkData?.length){showErr('No data to export');return}
-  // Merge by domain
+  if(!bizData?.length&&!bulkData?.length){showErr('No data');return}
   const map={};
-  if(bulkData)bulkData.forEach(r=>map[r.domain]={...map[r.domain],...r,_bulk:true});
-  if(bizData)bizData.forEach(r=>map[r.domain]={...map[r.domain],...r,_biz:true});
+  if(bulkData)bulkData.forEach(r=>map[r.domain]={...map[r.domain],...r,_b:1});
+  if(bizData)bizData.forEach(r=>map[r.domain]={...map[r.domain],...r,_z:1});
   const all=Object.values(map);
-  let csv=csvRow(['Domain','Status','Valid','Title','HTTP Code','Word Count','Confidence','Redirect Target','Flags','Remarks','Business Name','Phone','Email','Full Address','Street','City','State','ZIP','Country','Country Code','Domain Age (Years)','Registration Date','Facebook','Instagram','Twitter','LinkedIn','YouTube','TikTok','Yelp','Pinterest','Business Type']);
-  all.forEach(r=>{
-    const s=r.socials||{};const a=r.address||{};const da=r.domainAge||{};
-    csv+=csvRow([r.domain,r._bulk?fmtS(r.overallStatus):'',r._bulk?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.title||'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; '),r.reasons?.[0]||r.error||'',r.businessName||'',r.phones?.[0]||'',r.emails?.[0]||'',a.fullAddress||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.country?.name||'',r.country?.code||'',da.ageYears||'',da.registrationDate||'',s.facebook||'',s.instagram||'',s.twitter||'',s.linkedin||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.businessType||''])});
-  downloadCSV('combined-intelligence-'+new Date().toISOString().split('T')[0]+'.csv',csv);
+  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Domain Age','Remarks','Reasons','Meta Description','Valid','HTTP Code','Word Count','Confidence','Redirect Target','Flags']);
+  all.forEach(r=>{const s=r.socials||{};const a=r.address||{};const da=r.domainAge||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||r.overallStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',da.ageFormatted||'',r.reasons?.[0]||r.error||'','',r.metaDescription||'',r._b?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; ')])});
+  dl('combined-'+today+'.csv',csv);
 }
 </script>
 </body>
