@@ -1403,9 +1403,7 @@ async function extractBusinessInfo(html, domain) {
     }
     // Also handle full state name: "Auburn, Maine 04210"
     if (!address.city) {
-      const fullStateMatch = bodyText.match(/(?:^|[
-
-,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})/m);
+      const fullStateMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})/m);
       if (fullStateMatch) {
         const stateNameRaw = fullStateMatch[2].trim();
         const stateCode = Object.entries(US_STATES).find(([,name]) => name.toLowerCase() === stateNameRaw.toLowerCase())?.[0];
