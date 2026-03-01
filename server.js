@@ -1195,7 +1195,7 @@ async function extractBusinessInfo(html, domain) {
   // Try to find address in text if schema didn't have it
   if (!address.street && !address.city) {
     // Broader regex: also match addresses without ZIP
-    const addrMatch = bodyText.match(/\d+\s+[A-Z][a-zA-Z\s.]+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy|Suite|Ste|Unit|#)\b[^.]*?,\s*[A-Za-z\s]+(?:,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i);
+    const addrMatch = bodyText.match( /\d{1,6}\s+[A-Za-z0-9\s.#-]+?\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy)\b[^.]{0,120}/i);
     if (addrMatch) address = parseUSAddress(addrMatch[0]);
   }
   // Ensure ZIP preserves leading zeros
