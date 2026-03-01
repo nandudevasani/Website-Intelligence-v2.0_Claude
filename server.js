@@ -1094,39 +1094,14 @@ function detectCountry(html, domain, schemaAddress, phones) {
   return { code: 'UNKNOWN', name: 'Unknown', confidence: 'none' };
 }
 
-async function getDomainAge(domain) {
-  try {
-    const rdapUrl = `https://rdap.org/domain/${domain}`;
-    const res = await axios.get(rdapUrl, { timeout: 8000, validateStatus: () => true });
-    if (res.status === 200 && res.data) {
-      const events = res.data.events || [];
-      const regEvent = events.find(e => e.eventAction === 'registration');
-      const expEvent = events.find(e => e.eventAction === 'expiration');
-      const regDate = regEvent?.eventDate || null;
-      const expDate = expEvent?.eventDate || null;
-      let ageFormatted = null;
-      if (regDate) {
-        const diffMs = Date.now() - new Date(regDate).getTime();
-        const totalMonths = Math.floor(diffMs / (30.44 * 86400000));
-        const years = Math.floor(totalMonths / 12);
-        const months = totalMonths % 12;
-        if (years > 0 && months > 0) ageFormatted = years + 'Y, ' + months + 'M';
-        else if (years > 0) ageFormatted = years + 'Y';
-        else ageFormatted = months + 'M';
-      }
-      return { registrationDate: regDate ? regDate.split('T')[0] : null, expirationDate: expDate ? expDate.split('T')[0] : null, ageFormatted, registrar: res.data.entities?.[0]?.vcardArray?.[1]?.find(v => v[0] === 'fn')?.[3] || null };
-    }
-  } catch (e) { /* RDAP failed */ }
-  return { registrationDate: null, expirationDate: null, ageFormatted: null, registrar: null };
-}
-
-function extractOGMeta(html) {
-  const get = (prop) => { const m = html.match(new RegExp('<meta[^>]*property=["\']og:' + prop + '["\'][^>]*content=["\']([^"\']*)["\']', 'i')) || html.match(new RegExp('<meta[^>]*content=["\']([^"\']*)["\'][^>]*property=["\']og:' + prop + '["\']', 'i')); return m ? m[1].trim() : null; };
-  return { siteName: get('site_name'), title: get('title'), description: get('description'), image: get('image'), url: get('url'), type: get('type') };
-}
-
 async function extractBusinessInfo(html, domain) {
-  const bodyText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+  const bodyText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   // 1. Schema.org JSON-LD (most structured)
   const schema = extractSchemaOrg(html);
@@ -1146,12 +1121,20 @@ async function extractBusinessInfo(html, domain) {
   let footerName = null;
   const footerMatch = html.match(/<footer[\s\S]*?<\/footer>/i);
   if (footerMatch) {
-    const footerText = footerMatch[0].replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ');
-    // Match "© 2024 Business Name" or "Copyright 2024 Business Name" or "© Business Name"
-    const copyMatch = footerText.match(/(?:©|copyright)\s*(?:\d{4}\s*[-–]?\s*\d{0,4}\s*)?([A-Z][A-Za-z\s&'.,-]+?)(?:\s*[.|]|\s*All\s+Rights|\s*$)/i);
+    const footerText = footerMatch[0]
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z]+;/gi, ' ')
+      .replace(/\s+/g, ' ');
+    const copyMatch = footerText.match(
+      /(?:©|copyright)\s*(?:\d{4}\s*[-–]?\s*\d{0,4}\s*)?([A-Z][A-Za-z\s&'.,-]+?)(?:\s*[.|]|\s*All\s+Rights|\s*$)/i
+    );
     if (copyMatch && copyMatch[1]) {
       let fn = copyMatch[1].trim().replace(/[.,]+$/, '').trim();
-      if (fn.length > 3 && fn.length < 80 && !/all rights|privacy|terms|powered by|built with|designed by/i.test(fn)) {
+      if (
+        fn.length > 3 &&
+        fn.length < 80 &&
+        !/all rights|privacy|terms|powered by|built with|designed by/i.test(fn)
+      ) {
         footerName = fn;
       }
     }
@@ -1159,29 +1142,31 @@ async function extractBusinessInfo(html, domain) {
 
   // 6. Business name (cleaned) — now includes footer as a source
   let businessName = cleanBusinessName(rawTitle, cleanOGSiteName, cleanSchemaName, domain, footerName);
-// Fallback: if cleanBusinessName returned nothing, use the domain
-if (!businessName || businessName.trim().length === 0) {
-  businessName = domain;
-}
+  // Fallback: if cleanBusinessName returned nothing, use the domain
+  if (!businessName || businessName.trim().length === 0) {
+    businessName = domain;
+  }
+
   // 7. Contact info
   const contact = extractContactInfo(html, bodyText);
-  // Strong fallback: detect business name from contact block
-if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase()) {
-  const contactNameMatch = bodyText.match(
-    /([A-Z][A-Za-z&\s]+(?:LLC|Inc|Corporation|Company|Service|Services|Repair|Plumbing|Mechanical)[A-Za-z&\s]*)/i
-  );
 
-  if (contactNameMatch && contactNameMatch[1]) {
-    const detectedName = contactNameMatch[1].trim();
-    if (detectedName.length > 5 && detectedName.length < 100) {
-      businessName = detectedName;
+  // Strong fallback: detect business name from contact block
+  if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase()) {
+    const contactNameMatch = bodyText.match(
+      /([A-Z][A-Za-z&\s]+(?:LLC|Inc|Corporation|Company|Service|Services|Repair|Plumbing|Mechanical)[A-Za-z&\s]*)/i
+    );
+    if (contactNameMatch && contactNameMatch[1]) {
+      const detectedName = contactNameMatch[1].trim();
+      if (detectedName.length > 5 && detectedName.length < 100) {
+        businessName = detectedName;
+      }
     }
   }
-}
+
   // Merge schema contacts
   if (schema.phone) {
     const schemaDigits = schema.phone.replace(/\D/g, '');
-    if (!contact.phones.some(p => p.replace(/\D/g, '') === schemaDigits)) contact.phones.unshift(schema.phone);
+    if (!contact.phones.some((p) => p.replace(/\D/g, '') === schemaDigits)) contact.phones.unshift(schema.phone);
   }
   if (schema.email) {
     const se = schema.email.toLowerCase();
@@ -1189,37 +1174,40 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
   }
 
   // Filter filler/placeholder emails
-  contact.emails = contact.emails.filter(e => !/filler@|noreply@|no-reply@|donotreply@|placeholder/i.test(e));
+  contact.emails = contact.emails.filter((e) => !/filler@|noreply@|no-reply@|donotreply@|placeholder/i.test(e));
 
   // 8. Social links
   const socials = extractSocialLinks(html);
 
   // 9. Address parsing — preserve leading zeros in ZIP
-  let address = { street:'', city:'', state:'', zip:'' };
+  let address = { street: '', city: '', state: '', zip: '' };
   if (schema.address) {
     if (schema.address.street || schema.address.city) {
       address = {
         street: schema.address.street || '',
         city: schema.address.city || '',
         state: schema.address.state || '',
-        zip: schema.address.zip ? String(schema.address.zip) : '' // preserve leading zeros
+        zip: schema.address.zip ? String(schema.address.zip) : '',
       };
     } else if (schema.address.raw) {
       address = parseUSAddress(schema.address.raw);
     }
   }
-// If still no address found, try City, State ZIP only (like: Sanford, NC 27332)
-if (!address.city && !address.zip) {
-  const cityStateZipMatch = bodyText.match(
-    /\b([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5})\b/
-  );
 
-  if (cityStateZipMatch) {
-    address.city = cityStateZipMatch[1].trim();
-    address.state = cityStateZipMatch[2];
-    address.zip = cityStateZipMatch[3];
+  // If still no address found, try City, State ZIP only (like: Sanford, NC 27332)
+  if (!address.city && !address.zip) {
+    const cityStateZipMatch = bodyText.match(/\b([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5})\b/);
+    if (cityStateZipMatch) {
+      address.city = cityStateZipMatch[1].trim();
+      address.state = cityStateZipMatch[2];
+      address.zip = cityStateZipMatch[3];
+    }
   }
-}
+
+  // --- FIX: define addrMatch before using it ---
+  const addrMatch = bodyText.match(
+    /\b\d{1,6}\s+[A-Za-z0-9\s.#-]+?\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway)\b(?:,\s*[A-Za-z\s]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
+  );
   if (addrMatch) {
     const parsed = parseUSAddress(addrMatch[0]);
 
@@ -1234,7 +1222,7 @@ if (!address.city && !address.zip) {
       address = parsed;
     }
   }
-}
+
   // Ensure ZIP preserves leading zeros
   if (address.zip && /^\d{4}$/.test(address.zip)) address.zip = '0' + address.zip;
 
@@ -1246,7 +1234,13 @@ if (!address.city && !address.zip) {
 
   // 12. Meta description
   const metaDescMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([\s\S]*?)["']/i);
-  const metaDescription = metaDescMatch ? decodeHTML(metaDescMatch[1].trim()) : og.description ? decodeHTML(og.description) : schema.description ? decodeHTML(schema.description) : null;
+  const metaDescription = metaDescMatch
+    ? decodeHTML(metaDescMatch[1].trim())
+    : og.description
+    ? decodeHTML(og.description)
+    : schema.description
+    ? decodeHTML(schema.description)
+    : null;
 
   // 13. Business type/industry from schema
   const businessType = schema.type || null;
@@ -1262,8 +1256,13 @@ if (!address.city && !address.zip) {
     country,
     socials,
     domainAge,
-    schema: { hasSchema: !!schema.name, rating: schema.rating, priceRange: schema.priceRange, hours: schema.hours.length > 0 ? schema.hours : null },
-    og: { siteName: og.siteName, image: og.image }
+    schema: {
+      hasSchema: !!schema.name,
+      rating: schema.rating,
+      priceRange: schema.priceRange,
+      hours: schema.hours.length > 0 ? schema.hours : null,
+    },
+    og: { siteName: og.siteName, image: og.image },
   };
 }
 
