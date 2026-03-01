@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Website Intelligence v3.0</title>
+  <title>Website Intelligence v3.1</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -27,15 +27,19 @@
     .search-input-wrap .icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
     .sinput{width:100%;padding:14px 16px 14px 46px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;color:var(--t1);font-size:1rem;outline:none;transition:border-color .2s,box-shadow .2s}
     .sinput::placeholder{color:var(--t3)}.sinput:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-g)}
+    .sinput.invalid{border-color:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.2)}
+    .val-msg{font-size:.75rem;color:var(--red);margin-top:4px;display:none}
     .btn{padding:14px 28px;background:var(--acc);border:none;border-radius:12px;color:#fff;font-size:.95rem;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;font-family:'DM Sans',sans-serif}
     .btn:hover{background:#2563eb;transform:translateY(-1px);box-shadow:0 4px 20px var(--acc-g)}.btn:active{transform:translateY(0)}.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
     .btn-sm{padding:9px 18px;font-size:.82rem;border-radius:10px}
     .btn-csv{background:var(--grn)}.btn-csv:hover{background:#16a34a;box-shadow:0 4px 16px rgba(34,197,94,.3)}
     .btn-pur{background:var(--pur)}.btn-pur:hover{background:#9333ea}
+    .btn-red{background:var(--red)}.btn-red:hover{background:#dc2626}
     .bulk-area{display:none;max-width:700px;margin:0 auto 2rem}
     .ta{width:100%;height:160px;padding:14px 16px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;color:var(--t1);font-size:.88rem;outline:none;resize:vertical;transition:border-color .2s,box-shadow .2s;margin-bottom:6px}
     .ta::placeholder{color:var(--t3)}.ta:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-g)}
     .count{font-size:.78rem;color:var(--t3);margin-bottom:10px;font-family:'JetBrains Mono',monospace}
+    .btn-row{display:flex;gap:8px}
     .loader{display:none;text-align:center;padding:3rem}.loader.show{display:block}
     .spinner{width:44px;height:44px;border:3px solid var(--bdr);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 1rem}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -94,14 +98,15 @@
     .social-link{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:var(--bg2);border-radius:5px;font-size:.7rem;color:var(--acc);text-decoration:none;margin:2px;font-family:'JetBrains Mono',monospace;transition:background .2s}.social-link:hover{background:var(--card-h);color:var(--t1)}
     .error-box{display:none;background:var(--red-b);border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;color:var(--red);font-weight:500}.error-box.show{display:block}
     .mono{font-family:'JetBrains Mono',monospace}
-    @media(max-width:640px){.header h1{font-size:1.4rem}.search-section{flex-direction:column}.status-hero{flex-direction:column;text-align:center}.sm{text-align:center}.cards{grid-template-columns:1fr}.cs{grid-template-columns:repeat(2,1fr)}.bt{font-size:.74rem}.bt th,.bt td{padding:6px 7px}}
+    .retry-note{font-size:.72rem;color:var(--org);font-style:italic;margin-top:4px}
+    @media(max-width:640px){.header h1{font-size:1.4rem}.search-section{flex-direction:column}.status-hero{flex-direction:column;text-align:center}.sm{text-align:center}.cards{grid-template-columns:1fr}.cs{grid-template-columns:repeat(2,1fr)}.bt{font-size:.74rem}.bt th,.bt td{padding:6px 7px}.btn-row{flex-direction:column}}
   </style>
 </head>
 <body>
 <div class="bg-grid"></div><div class="bg-glow"></div>
 <div class="container">
   <header class="header">
-    <div class="header-badge"><span class="dot"></span> Intelligence Engine v3.0</div>
+    <div class="header-badge"><span class="dot"></span> Intelligence Engine v3.1</div>
     <h1>Website Intelligence</h1>
     <p>Domain analysis, content detection, business extraction & social signals.</p>
   </header>
@@ -114,18 +119,25 @@
     <div class="search-input-wrap">
       <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input type="text" class="sinput" id="single-input" placeholder="Enter domain (e.g. example.com)" autocomplete="off" spellcheck="false">
+      <div class="val-msg" id="single-val">Please enter a valid domain (e.g. example.com)</div>
     </div>
     <button class="btn" onclick="doSingle()">Analyze</button>
   </div>
   <div class="bulk-area" id="sec-bulk">
     <textarea class="ta" id="bulk-ta" placeholder="Enter domains, one per line (max 100):&#10;example.com&#10;google.com" oninput="updateCt('bulk-ta','bulk-ct')"></textarea>
     <div class="count" id="bulk-ct">0 domains (max 100)</div>
-    <button class="btn" id="bulk-btn" onclick="doBulk()" style="width:100%">Analyze All Domains</button>
+    <div class="btn-row">
+      <button class="btn" id="bulk-btn" onclick="doBulk()" style="flex:1">Analyze All Domains</button>
+      <button class="btn btn-sm btn-red" id="bulk-cancel" onclick="cancelOp('bulk')" style="display:none">⏹ Cancel</button>
+    </div>
   </div>
   <div class="bulk-area" id="sec-biz">
     <textarea class="ta" id="biz-ta" placeholder="Enter domains for business extraction (max 100):&#10;bocasmilecenter.com&#10;millerandsonsplumbing.net" oninput="updateCt('biz-ta','biz-ct')"></textarea>
     <div class="count" id="biz-ct">0 domains (max 100)</div>
-    <button class="btn btn-pur" id="biz-btn" onclick="doBiz()" style="width:100%">Extract Business Info</button>
+    <div class="btn-row">
+      <button class="btn btn-pur" id="biz-btn" onclick="doBiz()" style="flex:1">Extract Business Info</button>
+      <button class="btn btn-sm btn-red" id="biz-cancel" onclick="cancelOp('biz')" style="display:none">⏹ Cancel</button>
+    </div>
   </div>
   <div class="error-box" id="errbox"></div>
   <div class="loader" id="loader"><div class="spinner"></div><div class="loader-text">Processing <span class="loader-hl" id="loader-hl">...</span></div><div class="loader-text" style="margin-top:4px;font-size:.78rem;color:var(--t3)" id="loader-sub"></div><div class="pbar-wrap" id="pbar-wrap" style="display:none"><div class="pbar" id="pbar"></div></div><div class="ptext" id="ptext" style="display:none"></div></div>
@@ -136,23 +148,45 @@
 <script>
 const API=window.location.origin;
 let bulkData=null,bizData=null;
+let cancelCtrl={bulk:null,biz:null};
 
+// === DOMAIN VALIDATION ===
+function isValidDomain(d){
+  d=d.trim().toLowerCase().replace(/^(https?:\/\/)/,'').replace(/\/.*$/,'').replace(/^www\./,'');
+  // allow subdomains, TLDs, hyphens — reject IPs, empty, spaces
+  return /^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)*\.[a-z]{2,}$/i.test(d);
+}
+function validateSingle(){
+  const d=document.getElementById('single-input').value.trim();
+  const v=document.getElementById('single-val');
+  const inp=document.getElementById('single-input');
+  if(!d){v.style.display='none';inp.classList.remove('invalid');return false}
+  if(!isValidDomain(d)){v.style.display='block';inp.classList.add('invalid');return false}
+  v.style.display='none';inp.classList.remove('invalid');return true;
+}
+
+// === TAB SWITCHING (results persist) ===
 function switchTab(t){
   document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
   document.querySelector('[data-tab="'+t+'"]').classList.add('active');
-  // Hide inputs only — results stay visible
   document.getElementById('sec-single').style.display=t==='single'?'flex':'none';
   document.getElementById('sec-bulk').style.display=t==='bulk'?'block':'none';
   document.getElementById('sec-biz').style.display=t==='biz'?'block':'none';
-  // Show matching results, hide others
-  document.getElementById('res-single').style.display=t==='single'?'block':'none';
-  document.getElementById('res-bulk').style.display=t==='bulk'?'block':'none';
-  document.getElementById('res-biz').style.display=t==='biz'?'block':'none';
+  // Show matching results, hide others — results STAY in DOM
+  document.getElementById('res-single').style.display=t==='single'&&document.getElementById('res-single').innerHTML?'block':'none';
+  document.getElementById('res-bulk').style.display=t==='bulk'&&document.getElementById('res-bulk').innerHTML?'block':'none';
+  document.getElementById('res-biz').style.display=t==='biz'&&document.getElementById('res-biz').innerHTML?'block':'none';
   document.getElementById('errbox').classList.remove('show');
   document.getElementById('loader').classList.remove('show');
 }
 function updateCt(taId,ctId){const c=document.getElementById(taId).value.trim().split('\n').filter(d=>d.trim()).length;const e=document.getElementById(ctId);e.textContent=c+' domain'+(c!==1?'s':'')+' (max 100)';e.style.color=c>100?'var(--red)':'var(--t3)'}
 document.getElementById('single-input').addEventListener('keydown',e=>{if(e.key==='Enter')doSingle()});
+document.getElementById('single-input').addEventListener('input',()=>{validateSingle()});
+
+// === CANCEL ===
+function cancelOp(type){
+  if(cancelCtrl[type]){cancelCtrl[type].abort();cancelCtrl[type]=null}
+}
 
 // === HELPERS ===
 function E(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -164,20 +198,52 @@ function showLoader(t,sub){document.getElementById('loader-hl').textContent=t;do
 function hideLoader(){document.getElementById('loader').classList.remove('show');document.getElementById('pbar-wrap').style.display='none';document.getElementById('ptext').style.display='none'}
 function showErr(m){const e=document.getElementById('errbox');e.textContent=m;e.classList.add('show')}
 function showProgress(c,t,d){document.getElementById('pbar-wrap').style.display='block';document.getElementById('ptext').style.display='block';const p=t>0?Math.round(c/t*100):0;document.getElementById('pbar').style.width=p+'%';document.getElementById('ptext').textContent=c+'/'+t+' done'+(d?' — '+d:'');document.getElementById('loader-hl').textContent=c+'/'+t}
-const fmtS=s=>({ACTIVE:'Active',DEAD:'Dead',DOWN:'Down',PARKED:'Parked',COMING_SOON:'Coming Soon',NO_CONTENT:'No Content',DEFAULT_PAGE:'Default Page',SUSPENDED:'Suspended',SHELL_SITE:'Shell Site',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign',ISSUES:'Issues',ERROR:'Error'}[s]||s);
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const fmtS=s=>({ACTIVE:'Active',DEAD:'Dead',DOWN:'Down',PARKED:'Parked',COMING_SOON:'Coming Soon',NO_CONTENT:'No Content',DEFAULT_PAGE:'Default Page',SUSPENDED:'Suspended',SHELL_SITE:'Shell Site',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign',ISSUES:'Issues',ERROR:'Error',UNKNOWN:'Unknown'}[s]||s);
 const sEmoji=s=>({ACTIVE:'✓',DEAD:'✗',DOWN:'✗',PARKED:'⊘',COMING_SOON:'◔',NO_CONTENT:'○',DEFAULT_PAGE:'▤',SUSPENDED:'⊘',SHELL_SITE:'◇',CROSS_DOMAIN_REDIRECT:'↯',POLITICAL_CAMPAIGN:'★',ISSUES:'!'}[s]||'?');
 const fmtV=v=>({VALID:'Genuine Active Website',PARKED:'Parked / For Sale',COMING_SOON:'Coming Soon',NO_CONTENT:'No Meaningful Content',DEFAULT_PAGE:'Default Server Page',SUSPENDED:'Suspended',SHELL_SITE:'Template Shell',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign'}[v]||v);
 const vC=v=>({VALID:'green',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue'}[v]||'orange');
 const vE=v=>({VALID:'✅',PARKED:'🅿️',COMING_SOON:'🚧',NO_CONTENT:'📭',DEFAULT_PAGE:'📄',SUSPENDED:'🚫',SHELL_SITE:'🏗️',CROSS_DOMAIN_REDIRECT:'⚠️',POLITICAL_CAMPAIGN:'🏛️'}[v]||'❓');
-const sColor=s=>({ACTIVE:'green',DEAD:'red',DOWN:'red',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue',ISSUES:'yellow'}[s]||'orange');
+const sColor=s=>({ACTIVE:'green',DEAD:'red',DOWN:'red',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue',ISSUES:'yellow',ERROR:'red'}[s]||'orange');
+
+// === WARMUP: ping server to wake Render free tier ===
+async function warmup(){
+  try{await fetch(API+'/api/health',{signal:AbortSignal.timeout(5000)})}catch(e){}
+}
+
+// === SINGLE FETCH WITH RETRY ===
+async function fetchWithRetry(url,body,retries=1,signal=null){
+  for(let i=0;i<=retries;i++){
+    try{
+      const opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+      if(signal)opts.signal=signal;
+      const r=await fetch(url,opts);
+      if(r.ok)return await r.json();
+      if(r.status>=500&&i<retries){await wait(1500);continue}
+      return await r.json();
+    }catch(e){
+      if(e.name==='AbortError')throw e;
+      if(i<retries){await wait(2000);continue}
+      throw e;
+    }
+  }
+}
 
 // ═══════════════════════════════════════
 // SINGLE DOMAIN
 // ═══════════════════════════════════════
 async function doSingle(){
-  const d=document.getElementById('single-input').value.trim();if(!d)return;
-  document.getElementById('errbox').classList.remove('show');showLoader(d,'Checking DNS, SSL, HTTP & content...');
-  try{const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:d})});if(!r.ok)throw new Error('Failed');renderSingle(await r.json())}catch(e){showErr('Failed: '+e.message)}finally{hideLoader()}
+  const d=document.getElementById('single-input').value.trim();
+  if(!d)return;
+  if(!validateSingle())return;
+  document.getElementById('errbox').classList.remove('show');
+  showLoader(d,'Waking server & analyzing...');
+  try{
+    await warmup();
+    const data=await fetchWithRetry(API+'/api/analyze',{domain:d},2);
+    if(data.error&&!data.overallStatus)throw new Error(data.message||data.error);
+    renderSingle(data);
+  }catch(e){showErr('Failed: '+e.message)}finally{hideLoader()}
 }
 function renderSingle(d){
   const el=document.getElementById('res-single');el.style.display='block';
@@ -200,19 +266,59 @@ function renderSingle(d){
 }
 
 // ═══════════════════════════════════════
-// BULK ANALYSIS
+// BULK ANALYSIS (with retry + cancel + pacing)
 // ═══════════════════════════════════════
 async function doBulk(){
   const txt=document.getElementById('bulk-ta').value.trim();if(!txt)return;
-  const doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
+  let doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
+  // Validate domains
+  const invalid=doms.filter(d=>!isValidDomain(d));
+  if(invalid.length>0){showErr('Invalid domains: '+invalid.slice(0,5).join(', ')+(invalid.length>5?' (+'+(invalid.length-5)+' more)':''));return}
   if(!doms.length)return;if(doms.length>100){showErr('Max 100 domains');return}
-  document.getElementById('errbox').classList.remove('show');showLoader('0/'+doms.length,'Analyzing domains sequentially...');showProgress(0,doms.length,'');
-  const btn=document.getElementById('bulk-btn');btn.disabled=true;const results=[];
-  for(let i=0;i<doms.length;i++){showProgress(i,doms.length,doms[i]);
-    try{const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:doms[i]})});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
-    results.push({domain:d.domain,overallStatus:d.overallStatus,isGenuinelyValid:d.isGenuinelyValid,statusCode:d.http?.statusCode,confidence:d.content?.confidence,reasons:d.content?.reasons||[],flags:d.content?.flags||[],redirectInfo:d.content?.redirectInfo,title:d.content?.details?.title,wordCount:d.content?.details?.wordCount,uniqueWordCount:d.content?.details?.uniqueWordCount})}
-    catch(e){results.push({domain:doms[i],overallStatus:'ERROR',isGenuinelyValid:false,error:e.message,reasons:[e.message],flags:[]})}}
-  btn.disabled=false;hideLoader();bulkData=results;renderBulk(results);
+
+  document.getElementById('errbox').classList.remove('show');
+  const ctrl=new AbortController();cancelCtrl.bulk=ctrl;
+  const btn=document.getElementById('bulk-btn');btn.disabled=true;
+  document.getElementById('bulk-cancel').style.display='block';
+  showLoader('Warming up...','Waking server before analysis...');
+
+  // Warmup ping
+  await warmup();await wait(500);
+
+  showProgress(0,doms.length,'');
+  const results=[];let retryQueue=[];
+
+  for(let i=0;i<doms.length;i++){
+    if(ctrl.signal.aborted)break;
+    showProgress(i,doms.length,doms[i]);
+    try{
+      const d=await fetchWithRetry(API+'/api/analyze',{domain:doms[i]},1,ctrl.signal);
+      results.push({domain:d.domain||doms[i],overallStatus:d.overallStatus||'ERROR',isGenuinelyValid:d.isGenuinelyValid||false,statusCode:d.http?.statusCode,confidence:d.content?.confidence,reasons:d.content?.reasons||[],flags:d.content?.flags||[],redirectInfo:d.content?.redirectInfo,title:d.content?.details?.title,wordCount:d.content?.details?.wordCount,uniqueWordCount:d.content?.details?.uniqueWordCount});
+    }catch(e){
+      if(e.name==='AbortError')break;
+      results.push({domain:doms[i],overallStatus:'ERROR',isGenuinelyValid:false,error:e.message,reasons:[e.message],flags:[]});
+      retryQueue.push(i);
+    }
+    if(i<doms.length-1)await wait(600); // pace requests
+  }
+
+  // Retry failed domains once more
+  if(retryQueue.length>0&&!ctrl.signal.aborted){
+    showLoader('Retrying '+retryQueue.length+' failed...','Second pass for failed domains');
+    for(const idx of retryQueue){
+      if(ctrl.signal.aborted)break;
+      try{
+        await wait(1000);
+        const d=await fetchWithRetry(API+'/api/analyze',{domain:doms[idx]},1,ctrl.signal);
+        // Replace the error entry
+        const ri=results.findIndex(r=>r.domain===doms[idx]&&r.overallStatus==='ERROR');
+        if(ri>=0)results[ri]={domain:d.domain||doms[idx],overallStatus:d.overallStatus||'ERROR',isGenuinelyValid:d.isGenuinelyValid||false,statusCode:d.http?.statusCode,confidence:d.content?.confidence,reasons:d.content?.reasons||[],flags:d.content?.flags||[],redirectInfo:d.content?.redirectInfo,title:d.content?.details?.title,wordCount:d.content?.details?.wordCount,uniqueWordCount:d.content?.details?.uniqueWordCount,retried:true};
+      }catch(e){if(e.name==='AbortError')break}
+    }
+  }
+
+  btn.disabled=false;document.getElementById('bulk-cancel').style.display='none';cancelCtrl.bulk=null;
+  hideLoader();bulkData=results;renderBulk(results);
 }
 function renderBulk(res){
   const el=document.getElementById('res-bulk');el.style.display='block';
@@ -221,8 +327,8 @@ function renderBulk(res){
   h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBulkCSV()">⬇ Analysis CSV</button></div>';
   h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Valid?</th><th>Title</th><th>HTTP</th><th>Words</th><th>Confidence</th><th>Redirect Target</th><th>Flags</th><th>Remarks</th></tr></thead><tbody>';
   res.forEach((r,i)=>{
-    h+='<tr><td style="color:var(--t3)" class="mono" style="font-size:.74rem">'+(i+1)+'</td>';
-    h+='<td><span class="bd">'+E(r.domain)+'</span></td>';
+    h+='<tr><td class="mono" style="font-size:.74rem;color:var(--t3)">'+(i+1)+'</td>';
+    h+='<td><span class="bd">'+E(r.domain)+'</span>'+(r.retried?'<span style="font-size:.6rem;color:var(--org);margin-left:4px">↻</span>':'')+'</td>';
     h+='<td><span class="bsb '+r.overallStatus+'">'+fmtS(r.overallStatus)+'</span></td>';
     h+='<td><span class="bv '+(r.isGenuinelyValid?'yes':'no')+'">'+(r.isGenuinelyValid?'✓':'✗')+'</span></td>';
     h+='<td style="font-size:.76rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.title||'—')+'</td>';
@@ -232,37 +338,75 @@ function renderBulk(res){
     h+='<td class="mono" style="font-size:.74rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.redirectInfo?.target||'—')+'</td>';
     h+='<td style="font-size:.74rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.flags?.join(', ')||'—')+'</td>';
     h+='<td style="color:var(--t2);font-size:.76rem;max-width:200px">'+E((r.reasons?.[0]||r.error||'—').substring(0,100))+'</td></tr>'});
-  h+='</tbody></table></div>';el.innerHTML=h;
+  h+='</tbody></table></div>';
+  if(res.some(r=>r.retried))h+='<div class="retry-note">↻ = auto-retried after initial failure</div>';
+  el.innerHTML=h;
 }
 
 // ═══════════════════════════════════════
-// BUSINESS INFO EXTRACTION
+// BUSINESS INFO (with retry + cancel + pacing)
 // ═══════════════════════════════════════
 async function doBiz(){
   const txt=document.getElementById('biz-ta').value.trim();if(!txt)return;
-  const doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
+  let doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
+  const invalid=doms.filter(d=>!isValidDomain(d));
+  if(invalid.length>0){showErr('Invalid domains: '+invalid.slice(0,5).join(', ')+(invalid.length>5?' (+'+(invalid.length-5)+' more)':''));return}
   if(!doms.length)return;if(doms.length>100){showErr('Max 100 domains');return}
-  document.getElementById('errbox').classList.remove('show');showLoader('0/'+doms.length,'Extracting business info...');showProgress(0,doms.length,'');
-  const btn=document.getElementById('biz-btn');btn.disabled=true;const results=[];
-  for(let i=0;i<doms.length;i++){showProgress(i,doms.length,doms[i]);
-    try{const r=await fetch(API+'/api/extract-business',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:doms[i]})});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
-    results.push({domain:d.domain,websiteStatus:d.websiteStatus||'UNKNOWN',reasons:d.reasons||[],...(d.business||{}),error:d.error||null})}
-    catch(e){results.push({domain:doms[i],websiteStatus:'ERROR',error:e.message,reasons:[e.message]})}}
-  btn.disabled=false;hideLoader();bizData=results;renderBiz(results);
+
+  document.getElementById('errbox').classList.remove('show');
+  const ctrl=new AbortController();cancelCtrl.biz=ctrl;
+  const btn=document.getElementById('biz-btn');btn.disabled=true;
+  document.getElementById('biz-cancel').style.display='block';
+  showLoader('Warming up...','Waking server...');
+
+  await warmup();await wait(500);
+
+  showProgress(0,doms.length,'');
+  const results=[];let retryQueue=[];
+
+  for(let i=0;i<doms.length;i++){
+    if(ctrl.signal.aborted)break;
+    showProgress(i,doms.length,doms[i]);
+    try{
+      const d=await fetchWithRetry(API+'/api/extract-business',{domain:doms[i]},1,ctrl.signal);
+      results.push({domain:d.domain||doms[i],websiteStatus:d.websiteStatus||'UNKNOWN',reasons:d.reasons||[],...(d.business||{}),error:d.error||null});
+    }catch(e){
+      if(e.name==='AbortError')break;
+      results.push({domain:doms[i],websiteStatus:'ERROR',error:e.message,reasons:[e.message]});
+      retryQueue.push(i);
+    }
+    if(i<doms.length-1)await wait(600);
+  }
+
+  // Retry failed
+  if(retryQueue.length>0&&!ctrl.signal.aborted){
+    showLoader('Retrying '+retryQueue.length+' failed...','');
+    for(const idx of retryQueue){
+      if(ctrl.signal.aborted)break;
+      try{
+        await wait(1000);
+        const d=await fetchWithRetry(API+'/api/extract-business',{domain:doms[idx]},1,ctrl.signal);
+        const ri=results.findIndex(r=>r.domain===doms[idx]&&r.websiteStatus==='ERROR');
+        if(ri>=0)results[ri]={domain:d.domain||doms[idx],websiteStatus:d.websiteStatus||'UNKNOWN',reasons:d.reasons||[],...(d.business||{}),error:d.error||null,retried:true};
+      }catch(e){if(e.name==='AbortError')break}
+    }
+  }
+
+  btn.disabled=false;document.getElementById('biz-cancel').style.display='none';cancelCtrl.biz=null;
+  hideLoader();bizData=results;renderBiz(results);
 }
 function renderBiz(res){
   const el=document.getElementById('res-biz');el.style.display='block';
   const ok=res.filter(r=>r.businessName&&!r.error).length;
   let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Extracted','--grn')+sumBox(res.length-ok,'Failed/Empty','--red')+'</div>';
   h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBizCSV()">⬇ Business CSV</button><button class="btn btn-sm btn-pur" onclick="exportCombinedCSV()">⬇ Combined CSV</button></div>';
-  // Table columns: Domain | Website Status | Country | Business Name | Street | City | State | Zip | Phone | Email | Domain Age | Socials
   h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Country</th><th>Business Name</th><th>Street</th><th>City</th><th>State</th><th>ZIP</th><th>Phone</th><th>Email</th><th>Age</th><th>Socials</th></tr></thead><tbody>';
   res.forEach((r,i)=>{
-    const a=r.address||{};const sc=sColor(r.websiteStatus);
+    const a=r.address||{};
     let soc='';
     if(r.socials){['facebook','linkedin','instagram','twitter','youtube','tiktok','yelp','pinterest'].forEach(k=>{if(r.socials[k])soc+='<a class="social-link" href="'+E(r.socials[k])+'" target="_blank" rel="noopener">'+k.substring(0,2).toUpperCase()+'</a>'})}
     h+='<tr><td class="mono" style="font-size:.72rem;color:var(--t3)">'+(i+1)+'</td>';
-    h+='<td><span class="bd">'+E(r.domain)+'</span></td>';
+    h+='<td><span class="bd">'+E(r.domain)+'</span>'+(r.retried?'<span style="font-size:.6rem;color:var(--org);margin-left:4px">↻</span>':'')+'</td>';
     h+='<td><span class="bsb '+(r.websiteStatus||'')+'">'+fmtS(r.websiteStatus||'UNKNOWN')+'</span></td>';
     h+='<td class="mono" style="font-size:.76rem">'+(r.country?.code||'—')+'</td>';
     h+='<td style="font-size:.8rem;font-weight:600;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.businessName||r.error||'—')+'</td>';
@@ -274,7 +418,9 @@ function renderBiz(res){
     h+='<td class="mono" style="font-size:.72rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.emails?.[0]||'—')+'</td>';
     h+='<td class="mono" style="font-size:.76rem">'+(r.domainAge?.ageFormatted||'—')+'</td>';
     h+='<td>'+soc+'</td></tr>'});
-  h+='</tbody></table></div>';el.innerHTML=h;
+  h+='</tbody></table></div>';
+  if(res.some(r=>r.retried))h+='<div class="retry-note">↻ = auto-retried after initial failure</div>';
+  el.innerHTML=h;
 }
 
 // ═══════════════════════════════════════
@@ -293,8 +439,8 @@ function exportBulkCSV(){
 function exportBizCSV(){
   if(!bizData?.length){showErr('No business results');return}
   let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Remarks','Reasons','Meta Description']);
-  bizData.forEach(r=>{const s=r.socials||{};const a=r.address||{};const da=r.domainAge||{};
-  csv+=cr([r.domain,fmtS(r.websiteStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',da.ageFormatted||'',r.reasons?.[0]||r.error||'',r.metaDescription||''])});
+  bizData.forEach(r=>{const s=r.socials||{};const a=r.address||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.domainAge?.ageFormatted||'',r.reasons?.[0]||r.error||'',r.metaDescription||''])});
   dl('business-info-'+today+'.csv',csv);
 }
 function exportCombinedCSV(){
@@ -304,8 +450,8 @@ function exportCombinedCSV(){
   if(bizData)bizData.forEach(r=>map[r.domain]={...map[r.domain],...r,_z:1});
   const all=Object.values(map);
   let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Domain Age','Remarks','Reasons','Meta Description','Valid','HTTP Code','Word Count','Confidence','Redirect Target','Flags']);
-  all.forEach(r=>{const s=r.socials||{};const a=r.address||{};const da=r.domainAge||{};
-  csv+=cr([r.domain,fmtS(r.websiteStatus||r.overallStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',da.ageFormatted||'',r.reasons?.[0]||r.error||'','',r.metaDescription||'',r._b?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; ')])});
+  all.forEach(r=>{const s=r.socials||{};const a=r.address||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||r.overallStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.domainAge?.ageFormatted||'',r.reasons?.[0]||r.error||'','',r.metaDescription||'',r._b?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; ')])});
   dl('combined-'+today+'.csv',csv);
 }
 </script>
