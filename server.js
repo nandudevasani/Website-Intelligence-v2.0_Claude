@@ -791,21 +791,61 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
 
 function extractSocialLinks(html) {
   const socials = { facebook:null, twitter:null, instagram:null, linkedin:null, youtube:null, tiktok:null, pinterest:null, yelp:null };
-  const patterns = [
-    [/https?:\/\/(?:www\.)?facebook\.com\/[a-zA-Z0-9._%-]+/gi, 'facebook'],
-    [/https?:\/\/(?:www\.)?twitter\.com\/[a-zA-Z0-9_]+/gi, 'twitter'],
-    [/https?:\/\/(?:www\.)?x\.com\/[a-zA-Z0-9_]+/gi, 'twitter'],
-    [/https?:\/\/(?:www\.)?instagram\.com\/[a-zA-Z0-9._]+/gi, 'instagram'],
-    [/https?:\/\/(?:www\.)?linkedin\.com\/(?:company|in)\/[a-zA-Z0-9_%-]+/gi, 'linkedin'],
-    [/https?:\/\/(?:www\.)?youtube\.com\/(?:channel|c|user|@)[a-zA-Z0-9_%-\/]+/gi, 'youtube'],
-    [/https?:\/\/(?:www\.)?tiktok\.com\/@[a-zA-Z0-9._]+/gi, 'tiktok'],
-    [/https?:\/\/(?:www\.)?pinterest\.com\/[a-zA-Z0-9._]+/gi, 'pinterest'],
-    [/https?:\/\/(?:www\.)?yelp\.com\/biz\/[a-zA-Z0-9._%-]+/gi, 'yelp']
+
+  const allLinks = html.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+
+  const badFacebookPatterns = [
+    'sharer',
+    'share.php',
+    'login',
+    'dialog',
+    'groups',
+    'events',
+    'hashtag',
+    'intent',
+    'plugins',
+    'php?'
   ];
-  patterns.forEach(([regex, key]) => {
-    const m = html.match(regex);
-    if (m) socials[key] = [...new Set(m)][0]; // first unique match
-  });
+
+  for (let url of allLinks) {
+    const cleanUrl = url.split('?')[0].replace(/\/$/, '');
+
+    if (!socials.facebook && /facebook\.com\//i.test(cleanUrl)) {
+      const lower = cleanUrl.toLowerCase();
+      if (!badFacebookPatterns.some(p => lower.includes(p))) {
+        socials.facebook = cleanUrl;
+      }
+    }
+
+    if (!socials.twitter && /(twitter\.com|x\.com)\//i.test(cleanUrl)) {
+      socials.twitter = cleanUrl;
+    }
+
+    if (!socials.instagram && /instagram\.com\//i.test(cleanUrl)) {
+      socials.instagram = cleanUrl;
+    }
+
+    if (!socials.linkedin && /linkedin\.com\/(company|in)\//i.test(cleanUrl)) {
+      socials.linkedin = cleanUrl;
+    }
+
+    if (!socials.youtube && /youtube\.com\/(channel|c|user|@)/i.test(cleanUrl)) {
+      socials.youtube = cleanUrl;
+    }
+
+    if (!socials.tiktok && /tiktok\.com\/@/i.test(cleanUrl)) {
+      socials.tiktok = cleanUrl;
+    }
+
+    if (!socials.pinterest && /pinterest\.com\//i.test(cleanUrl)) {
+      socials.pinterest = cleanUrl;
+    }
+
+    if (!socials.yelp && /yelp\.com\/biz\//i.test(cleanUrl)) {
+      socials.yelp = cleanUrl;
+    }
+  }
+
   return socials;
 }
 
