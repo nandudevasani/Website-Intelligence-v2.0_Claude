@@ -1165,7 +1165,10 @@ async function extractBusinessInfo(html, domain) {
   domain,
   footerName
 );
-
+// Fallback: if cleanBusinessName returned nothing, use the domain
+if (!businessName || businessName.trim().length === 0) {
+  businessName = domain;
+}
   // 7. Contact info
   const contact = extractContactInfo(html, bodyText);
   // Strong fallback: detect business name from contact block
