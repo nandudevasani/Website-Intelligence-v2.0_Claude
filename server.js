@@ -1162,6 +1162,16 @@ async function extractBusinessInfo(html, domain) {
 
   // 7. Contact info
   const contact = extractContactInfo(html, bodyText);
+  // Detect business name from contact block (strong fallback)
+if (!businessName || businessName.length < 5) {
+  const contactBlockMatch = bodyText.match(
+    /([A-Z][A-Za-z&\s]+(?:LLC|Inc|Corporation|Company|Service|Services|Repair|Plumbing|Mechanical)[A-Za-z&\s]*)\s+Sanford,\s*NC\s*\d{5}/i
+  );
+
+  if (contactBlockMatch && contactBlockMatch[1]) {
+    businessName = contactBlockMatch[1].trim();
+  }
+}
   // Merge schema contacts
   if (schema.phone) {
     const schemaDigits = schema.phone.replace(/\D/g, '');
@@ -1192,12 +1202,18 @@ async function extractBusinessInfo(html, domain) {
       address = parseUSAddress(schema.address.raw);
     }
   }
-  // Try to find address in text if schema didn't have it
- if (!address.street && !address.city) {
-  const addrMatch = bodyText.match(
-    /\b\d{1,6}\s+[A-Za-z0-9\s.#-]+?\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway|Hwy)\b(?:,\s*[A-Za-z\s]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
+// If still no address found, try City, State ZIP only (like: Sanford, NC 27332)
+if (!address.city && !address.zip) {
+  const cityStateZipMatch = bodyText.match(
+    /\b([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5})\b/
   );
 
+  if (cityStateZipMatch) {
+    address.city = cityStateZipMatch[1].trim();
+    address.state = cityStateZipMatch[2];
+    address.zip = cityStateZipMatch[3];
+  }
+}
   if (addrMatch) {
     const parsed = parseUSAddress(addrMatch[0]);
 
