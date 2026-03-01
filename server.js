@@ -711,7 +711,29 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
   };
 
   // Priority: Schema > Footer > OG site_name > cleaned title > domain
-  if (schemaName && schemaName.length > 2 && schemaName.length < 80 && isEnglish(schemaName) && !isErrorTitle(schemaName) && !isDomainAsName(schemaName, domain)) return cleanName(stripSubtitle(schemaName));
+  if (schemaName && schemaName.length > 2 && schemaName.length < 80 && isEnglish(schemaName) && !isErrorTitle(schemaName) && !isDomainAsName(schemaName, domain)) {
+    // If schema name contains a dash separator, prefer the shorter/proper-noun part
+    const dashParts = schemaName.split(/\s*[-–—]\s*/);
+    if (dashParts.length >= 2) {
+      // Pick the part that best matches the domain, or the last part if it looks like a proper name
+      const domBase = domain.replace(/\.[a-z]+$/i, '').replace(/[-_.]/g, '').toLowerCase();
+      let best = dashParts[0];
+      for (const part of dashParts) {
+        const p = part.trim();
+        // Prefer part that matches domain words
+        if (p.toLowerCase().replace(/\s+/g, '').includes(domBase.substring(0, 5))) { best = p; break; }
+        // Prefer shorter part that looks like a proper business name (not a description)
+        if (p.length < best.length && /^[A-Z]/.test(p) && !/services|solutions|group|brokerage|management|systems|repair|plumbing|heating|cooling/i.test(p)) best = p;
+      }
+      // If best is still description-like, try last segment
+      if (/services|solutions|brokerage|real estate|group|systems/i.test(best) && dashParts.length >= 2) {
+        const last = dashParts[dashParts.length - 1].trim();
+        if (last.length > 3 && last.length < 50 && /^[A-Z]/.test(last)) best = last;
+      }
+      return cleanName(best);
+    }
+    return cleanName(stripSubtitle(schemaName));
+  }
   if (footerName && footerName.length > 2 && footerName.length < 80 && isEnglish(footerName)) return cleanName(footerName);
   if (ogSiteName && ogSiteName.length > 2 && ogSiteName.length < 80 && isEnglish(ogSiteName) && !isErrorTitle(ogSiteName) && !isDomainAsName(ogSiteName, domain)) return cleanName(stripSubtitle(ogSiteName));
 
@@ -1116,53 +1138,89 @@ function extractOGMeta(html) {
 // === DOMAIN AGE VIA RDAP ===
 async function getDomainAge(domain) {
   const result = { createdDate: null, updatedDate: null, expiresDate: null, ageInDays: null, ageText: null, registrar: null, error: null };
+
+  function calcAge(createdDate) {
+    const created = new Date(createdDate);
+    if (isNaN(created.getTime())) return;
+    result.createdDate = createdDate;
+    result.ageInDays = Math.floor((Date.now() - created) / 86400000);
+    const years = Math.floor(result.ageInDays / 365);
+    const months = Math.floor((result.ageInDays % 365) / 30);
+    if (years > 0) result.ageText = years + ' yr' + (years !== 1 ? 's' : '') + (months > 0 ? ' ' + months + ' mo' : '');
+    else if (months > 0) result.ageText = months + ' month' + (months !== 1 ? 's' : '');
+    else result.ageText = result.ageInDays + ' day' + (result.ageInDays !== 1 ? 's' : '');
+  }
+
+  // --- Attempt 1: RDAP (multiple endpoints) ---
   try {
-    const tld = domain.split('.').slice(-1)[0].toLowerCase();
+    const tld = domain.split('.').pop().toLowerCase();
     const rdapUrls = [
-      `https://rdap.org/domain/${domain}`,
       `https://rdap.verisign.com/com/v1/domain/${domain}`,
       `https://rdap.verisign.com/net/v1/domain/${domain}`,
-      `https://rdap.nic.org/domain/${domain}`
+      `https://rdap.org/domain/${domain}`,
+      `https://rdap.nic.org/domain/${domain}`,
     ];
     let data = null;
     for (const url of rdapUrls) {
       try {
-        const resp = await axios.get(url, { timeout: 8000, validateStatus: s => s < 500 });
-        if (resp.status === 200 && resp.data) { data = resp.data; break; }
+        const resp = await axios.get(url, { timeout: 6000, validateStatus: s => s === 200 });
+        if (resp.data && resp.data.events) { data = resp.data; break; }
       } catch {}
     }
-    if (!data) { result.error = 'RDAP lookup failed'; return result; }
-    // Parse events
-    const events = data.events || [];
-    for (const ev of events) {
-      if (!ev.eventAction || !ev.eventDate) continue;
-      const action = ev.eventAction.toLowerCase();
-      if (action === 'registration') result.createdDate = ev.eventDate;
-      else if (action === 'last changed' || action === 'last update of rdap database') result.updatedDate = ev.eventDate;
-      else if (action === 'expiration') result.expiresDate = ev.eventDate;
-    }
-    // Age calculation
-    if (result.createdDate) {
-      const created = new Date(result.createdDate);
-      const now = new Date();
-      result.ageInDays = Math.floor((now - created) / 86400000);
-      const years = Math.floor(result.ageInDays / 365);
-      const months = Math.floor((result.ageInDays % 365) / 30);
-      if (years > 0) result.ageText = years + ' year' + (years !== 1 ? 's' : '') + (months > 0 ? ', ' + months + ' month' + (months !== 1 ? 's' : '') : '');
-      else if (months > 0) result.ageText = months + ' month' + (months !== 1 ? 's' : '');
-      else result.ageText = result.ageInDays + ' day' + (result.ageInDays !== 1 ? 's' : '');
-    }
-    // Registrar
-    const entities = data.entities || [];
-    for (const entity of entities) {
-      if (entity.roles && entity.roles.includes('registrar') && entity.vcardArray) {
-        const vcard = entity.vcardArray[1] || [];
-        for (const field of vcard) {
-          if (field[0] === 'fn' && field[3]) { result.registrar = field[3]; break; }
+    if (data) {
+      const events = data.events || [];
+      for (const ev of events) {
+        if (!ev.eventAction || !ev.eventDate) continue;
+        const action = ev.eventAction.toLowerCase().trim();
+        // Match all known registration event names across registrars
+        if (/^registr/.test(action) || action === 'creation' || action === 'created') {
+          calcAge(ev.eventDate);
+        } else if (action.includes('expir')) {
+          result.expiresDate = ev.eventDate;
+        } else if (action.includes('last') || action.includes('update') || action.includes('changed')) {
+          result.updatedDate = ev.eventDate;
         }
       }
+      // Registrar name
+      for (const entity of (data.entities || [])) {
+        if (entity.roles?.includes('registrar') && entity.vcardArray) {
+          for (const field of (entity.vcardArray[1] || [])) {
+            if (field[0] === 'fn' && field[3]) { result.registrar = field[3]; break; }
+          }
+        }
+      }
+      if (result.createdDate) return result;
     }
-  } catch (e) { result.error = e.message; }
+  } catch {}
+
+  // --- Attempt 2: whoisjson.com free API (no key needed) ---
+  try {
+    const resp = await axios.get(`https://whoisjson.com/api/v1/whois?domain=${domain}`, {
+      timeout: 8000, validateStatus: s => s === 200,
+      headers: { 'Accept': 'application/json' }
+    });
+    const d = resp.data;
+    const created = d?.created_date || d?.creation_date || d?.registrar_registration_expiration_date;
+    if (created) { calcAge(created); }
+    if (!result.registrar && d?.registrar) result.registrar = d.registrar;
+    if (!result.expiresDate && d?.expiry_date) result.expiresDate = d.expiry_date;
+    if (result.createdDate) return result;
+  } catch {}
+
+  // --- Attempt 3: jsonwhois.io (free tier, no key for basic) ---
+  try {
+    const resp = await axios.get(`https://jsonwhois.io/api/v1/whois?domain=${domain}`, {
+      timeout: 8000, validateStatus: s => s === 200,
+      headers: { 'Accept': 'application/json' }
+    });
+    const d = resp.data?.whois || resp.data;
+    const created = d?.created || d?.creation_date || d?.registered;
+    if (created) { calcAge(created); }
+    if (!result.registrar && d?.registrar?.name) result.registrar = d.registrar.name;
+    if (result.createdDate) return result;
+  } catch {}
+
+  result.error = 'All RDAP/WHOIS lookups failed';
   return result;
 }
 
@@ -1276,14 +1334,22 @@ async function extractBusinessInfo(html, domain) {
     }
   }
 
-  // --- FIX: define addrMatch before using it ---
+  // --- Street address extraction: strict regex to prevent bleed into business name ---
   const addrMatch = bodyText.match(
-    /\b\d{1,6}\s+[A-Za-z0-9\s.#-]+?\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway)\b(?:,\s*[A-Za-z\s]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
+    /\b(\d{1,6}\s+[A-Za-z0-9][A-Za-z0-9\s.#-]{1,40}?\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway)\.?)(?:,\s*[A-Za-z\s]{1,30},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
   );
   if (addrMatch) {
-    const parsed = parseUSAddress(addrMatch[0]);
+    const rawMatch = addrMatch[0].substring(0, 120).trim();
+    const parsed = parseUSAddress(rawMatch);
 
-    // Only accept if valid US state code
+    // Sanitize street: strip LLC/Inc/business suffixes that bleed in
+    if (parsed.street) {
+      parsed.street = parsed.street
+        .replace(/\s{2,}/g, ' ')
+        .replace(/\s+(LLC|Inc\.?|Corp\.?|Co\.?|Ltd\.?|Company|Services?|Repair|Plumbing|Mechanical)\b.*/i, '')
+        .trim();
+    }
+
     const validStates = new Set([
       'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA',
       'ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK',
@@ -1292,6 +1358,8 @@ async function extractBusinessInfo(html, domain) {
 
     if (parsed.state && validStates.has(parsed.state)) {
       address = parsed;
+    } else if (parsed.street && !address.street) {
+      address.street = parsed.street;
     }
   }
 
@@ -1328,6 +1396,10 @@ async function extractBusinessInfo(html, domain) {
     country,
     socials,
     domainAge,
+    // Flat convenience fields for CSV/table consumers
+    domainAgeText: domainAge.ageText || null,
+    domainCreated: domainAge.createdDate ? domainAge.createdDate.substring(0, 10) : null,
+    registrar: domainAge.registrar || null,
     schema: {
       hasSchema: !!schema.name,
       rating: schema.rating,
