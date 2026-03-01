@@ -435,12 +435,16 @@ function analyzeContent(html, domain, finalUrl) {
 
   const defaultPagePatterns = [
     /default\s+(web\s+)?page/i, /this\s+is\s+(the|a)\s+default/i, /web\s+server\s+(is\s+)?working/i,
-    /it\s+works/i, /apache.*default\s+page/i, /welcome\s+to\s+nginx/i, /iis\s+windows\s+server/i,
+    /apache.*default\s+page/i, /welcome\s+to\s+nginx/i, /iis\s+windows\s+server/i,
     /test\s+page.*apache/i, /congratulations.*successfully\s+installed/i, /placeholder\s+page/i,
     /website\s+is\s+(almost|not\s+yet)\s+ready/i
   ];
 
-  if (defaultPagePatterns.some(p => p.test(html))) {
+  // "It works!" is the classic Apache default page — but ONLY match when page has very few words
+  // Real business sites say "how it works" all the time, so we need the word count guard
+  const hasItWorks = /it\s+works/i.test(html) && analysis.details.wordCount < 50;
+
+  if ((defaultPagePatterns.some(p => p.test(html)) && analysis.details.wordCount < 100) || hasItWorks) {
     analysis.verdict = 'DEFAULT_PAGE'; analysis.confidence = 85;
     analysis.reasons.push('Website shows a default server/hosting page'); analysis.flags.push('DEFAULT_PAGE'); return analysis;
   }
@@ -567,7 +571,7 @@ app.post('/api/analyze', async (req, res) => {
 app.post('/api/analyze/bulk', async (req, res) => {
   const { domains } = req.body;
   if (!domains || !Array.isArray(domains) || domains.length === 0) return res.status(400).json({ error:'Provide an array of domains' });
-  if (domains.length > 20) return res.status(400).json({ error:'Maximum 20 domains per request' });
+  if (domains.length > 100) return res.status(400).json({ error:'Maximum 100 domains per request' });
 
   console.log(`\n[BULK] ${domains.length} domains`);
   const results = [];
@@ -602,10 +606,10 @@ app.post('/api/analyze/bulk', async (req, res) => {
   res.json({ total:results.length, results });
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'2.2' }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'2.3' }));
 
 app.listen(PORT, () => {
-  console.log(`\n=== Website Intelligence v2.2 ===`);
+  console.log(`\n=== Website Intelligence v2.3 ===`);
   console.log(`Dashboard: http://localhost:${PORT}`);
   console.log(`API:       http://localhost:${PORT}/api/analyze\n`);
 });
