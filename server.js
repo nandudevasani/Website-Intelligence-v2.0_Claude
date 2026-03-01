@@ -1094,6 +1094,78 @@ function detectCountry(html, domain, schemaAddress, phones) {
   return { code: 'UNKNOWN', name: 'Unknown', confidence: 'none' };
 }
 
+// === OPEN GRAPH META TAG EXTRACTION ===
+function extractOGMeta(html) {
+  const result = { siteName: null, title: null, description: null, image: null, url: null };
+  const metas = html.match(/<meta[^>]+property=["']og:[^"']+["'][^>]*>/gi) || [];
+  for (const meta of metas) {
+    const propMatch = meta.match(/property=["']og:([^"']+)["']/i);
+    const contMatch = meta.match(/content=["']([\s\S]*?)["']/i);
+    if (!propMatch || !contMatch) continue;
+    const prop = propMatch[1].toLowerCase();
+    const val = contMatch[1].trim();
+    if (prop === 'site_name' && !result.siteName) result.siteName = val;
+    if (prop === 'title' && !result.title) result.title = val;
+    if (prop === 'description' && !result.description) result.description = val;
+    if (prop === 'image' && !result.image) result.image = val;
+    if (prop === 'url' && !result.url) result.url = val;
+  }
+  return result;
+}
+
+// === DOMAIN AGE VIA RDAP ===
+async function getDomainAge(domain) {
+  const result = { createdDate: null, updatedDate: null, expiresDate: null, ageInDays: null, ageText: null, registrar: null, error: null };
+  try {
+    const tld = domain.split('.').slice(-1)[0].toLowerCase();
+    const rdapUrls = [
+      `https://rdap.org/domain/${domain}`,
+      `https://rdap.verisign.com/com/v1/domain/${domain}`,
+      `https://rdap.verisign.com/net/v1/domain/${domain}`,
+      `https://rdap.nic.org/domain/${domain}`
+    ];
+    let data = null;
+    for (const url of rdapUrls) {
+      try {
+        const resp = await axios.get(url, { timeout: 8000, validateStatus: s => s < 500 });
+        if (resp.status === 200 && resp.data) { data = resp.data; break; }
+      } catch {}
+    }
+    if (!data) { result.error = 'RDAP lookup failed'; return result; }
+    // Parse events
+    const events = data.events || [];
+    for (const ev of events) {
+      if (!ev.eventAction || !ev.eventDate) continue;
+      const action = ev.eventAction.toLowerCase();
+      if (action === 'registration') result.createdDate = ev.eventDate;
+      else if (action === 'last changed' || action === 'last update of rdap database') result.updatedDate = ev.eventDate;
+      else if (action === 'expiration') result.expiresDate = ev.eventDate;
+    }
+    // Age calculation
+    if (result.createdDate) {
+      const created = new Date(result.createdDate);
+      const now = new Date();
+      result.ageInDays = Math.floor((now - created) / 86400000);
+      const years = Math.floor(result.ageInDays / 365);
+      const months = Math.floor((result.ageInDays % 365) / 30);
+      if (years > 0) result.ageText = years + ' year' + (years !== 1 ? 's' : '') + (months > 0 ? ', ' + months + ' month' + (months !== 1 ? 's' : '') : '');
+      else if (months > 0) result.ageText = months + ' month' + (months !== 1 ? 's' : '');
+      else result.ageText = result.ageInDays + ' day' + (result.ageInDays !== 1 ? 's' : '');
+    }
+    // Registrar
+    const entities = data.entities || [];
+    for (const entity of entities) {
+      if (entity.roles && entity.roles.includes('registrar') && entity.vcardArray) {
+        const vcard = entity.vcardArray[1] || [];
+        for (const field of vcard) {
+          if (field[0] === 'fn' && field[3]) { result.registrar = field[3]; break; }
+        }
+      }
+    }
+  } catch (e) { result.error = e.message; }
+  return result;
+}
+
 async function extractBusinessInfo(html, domain) {
   const bodyText = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
