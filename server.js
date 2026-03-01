@@ -705,6 +705,8 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
   // Helper: is this just a domain name as the title?
   const isDomainAsName = (s, dom) => {
     if (!s) return false;
+    // Never reject pure ALL-CAPS acronyms (NAUW, IBM, etc.)
+    if (/^[A-Z]{2,8}$/.test(s.trim())) return false;
     const cleaned = s.toLowerCase().replace(/[.\s]/g, '');
     const domBase = dom.replace(/\.[a-z]+$/i, '').replace(/[.\-_]/g, '');
     return cleaned === domBase || cleaned === dom.replace(/\./g, '') || /\.com$|\.net$|\.org$/i.test(s);
@@ -1179,87 +1181,95 @@ async function getDomainAge(domain) {
   const result = { createdDate:null, updatedDate:null, expiresDate:null, ageInDays:null, ageText:null, registrar:null, error:null, attempts:[] };
   const tld = domain.split('.').pop().toLowerCase();
 
-  // ── ATTEMPT 1: Race all RDAP endpoints simultaneously ──
-  const rdapEndpoints = [
-    { name:'verisign-com', url:`https://rdap.verisign.com/com/v1/domain/${domain}` },
-    { name:'verisign-net', url:`https://rdap.verisign.com/net/v1/domain/${domain}` },
-    { name:'iana',         url:`https://rdap.iana.org/domain/${domain}` },
-    { name:'rdap-org',     url:`https://rdap.org/domain/${domain}` },
-  ];
-
-  try {
-    const rdapResult = await Promise.any(
-      rdapEndpoints.map(({ name, url }) =>
-        axios.get(url, { timeout: 8000, validateStatus: s => s === 200 })
-          .then(r => {
-            if (!r.data?.events?.length) throw new Error('no events in response');
-            result.attempts.push({ source: name, status: 'ok' });
-            return r.data;
-          })
-          .catch(e => {
-            result.attempts.push({ source: name, status: 'fail', error: e.message?.substring(0, 80) });
-            throw e;
-          })
-      )
-    );
-    parseRdapData(rdapResult, result);
-    if (result.createdDate) return result;
-  } catch (e) {
-    result.attempts.push({ source: 'rdap-race', status: 'all-failed' });
+  // Helper to try a single URL with full error capture
+  async function tryRdap(name, url) {
+    try {
+      const r = await axios.get(url, {
+        timeout: 10000,
+        validateStatus: s => s === 200,
+        headers: { Accept: 'application/rdap+json, application/json' }
+      });
+      if (r.data?.events?.length) {
+        result.attempts.push({ source: name, status: 'ok' });
+        return r.data;
+      }
+      result.attempts.push({ source: name, status: 'no-events', keys: Object.keys(r.data||{}).join(',') });
+    } catch(e) {
+      const msg = e.code || e.message || 'unknown';
+      result.attempts.push({ source: name, status: 'fail', error: msg.substring(0,100) });
+    }
+    return null;
   }
 
-  // ── ATTEMPT 2: whoisjson.com — free, no API key, works from most hosts ──
+  // ── ATTEMPT 1: Verisign RDAP — most reliable for .com/.net, standard HTTPS 443 ──
+  const tldRdap = tld === 'net'
+    ? `https://rdap.verisign.com/net/v1/domain/${domain}`
+    : `https://rdap.verisign.com/com/v1/domain/${domain}`;
+  const verisign = await tryRdap('verisign', tldRdap);
+  if (verisign) { parseRdapData(verisign, result); }
+  if (result.createdDate) return result;
+
+  // ── ATTEMPT 2: IANA bootstrap RDAP — delegates to correct registry ──
+  const iana = await tryRdap('iana', `https://rdap.iana.org/domain/${domain}`);
+  if (iana) { parseRdapData(iana, result); }
+  if (result.createdDate) return result;
+
+  // ── ATTEMPT 3: rdap.org universal proxy ──
+  const rdapOrg = await tryRdap('rdap.org', `https://rdap.org/domain/${domain}`);
+  if (rdapOrg) { parseRdapData(rdapOrg, result); }
+  if (result.createdDate) return result;
+
+  // ── ATTEMPT 4: whoisjson.com ──
   try {
     const r = await axios.get(`https://whoisjson.com/api/v1/whois?domain=${domain}`, {
-      timeout: 9000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
+      timeout: 10000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
     });
     const d = r.data;
-    const raw = d?.created_date || d?.creation_date || d?.registered;
-    if (raw && calcDomainAge(result, raw)) {
-      if (!result.registrar && d?.registrar) result.registrar = typeof d.registrar === 'string' ? d.registrar : d.registrar?.name;
-      if (!result.expiresDate) result.expiresDate = d?.expiry_date || d?.expiration_date || null;
+    const raw = d?.created_date || d?.creation_date || d?.registered || d?.creationDate;
+    if (raw && calcDomainAge(result, Array.isArray(raw) ? raw[0] : raw)) {
+      result.registrar = result.registrar || (typeof d?.registrar === 'string' ? d.registrar : d?.registrar?.name) || null;
+      result.expiresDate = result.expiresDate || d?.expiry_date || d?.expiration_date || null;
       result.attempts.push({ source: 'whoisjson', status: 'ok' });
       return result;
     }
-    result.attempts.push({ source: 'whoisjson', status: 'no-date', raw: JSON.stringify(d).substring(0, 120) });
-  } catch (e) {
-    result.attempts.push({ source: 'whoisjson', status: 'fail', error: e.message?.substring(0, 80) });
+    result.attempts.push({ source: 'whoisjson', status: 'no-date', sample: JSON.stringify(d).substring(0,150) });
+  } catch(e) {
+    result.attempts.push({ source: 'whoisjson', status: 'fail', error: (e.code||e.message||'').substring(0,100) });
   }
 
-  // ── ATTEMPT 3: who-dat.as93.net — simple free WHOIS JSON proxy ──
+  // ── ATTEMPT 5: who-dat.as93.net ──
   try {
     const r = await axios.get(`https://who-dat.as93.net/${domain}`, {
-      timeout: 9000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
+      timeout: 10000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
     });
     const d = r.data?.domain || r.data;
-    const raw = d?.created_date?.[0] || d?.created_date || d?.creation_date;
+    const raw = Array.isArray(d?.created_date) ? d.created_date[0] : (d?.created_date || d?.creation_date);
     if (raw && calcDomainAge(result, raw)) {
-      if (!result.registrar) result.registrar = r.data?.registrar?.name || null;
+      result.registrar = result.registrar || r.data?.registrar?.name || null;
       result.attempts.push({ source: 'who-dat', status: 'ok' });
       return result;
     }
-    result.attempts.push({ source: 'who-dat', status: 'no-date' });
-  } catch (e) {
-    result.attempts.push({ source: 'who-dat', status: 'fail', error: e.message?.substring(0, 80) });
+    result.attempts.push({ source: 'who-dat', status: 'no-date', sample: JSON.stringify(d||{}).substring(0,150) });
+  } catch(e) {
+    result.attempts.push({ source: 'who-dat', status: 'fail', error: (e.code||e.message||'').substring(0,100) });
   }
 
-  // ── ATTEMPT 4: domainsdb.info — free lookup, no key needed ──
+  // ── ATTEMPT 6: domainsdb.info ──
   try {
     const r = await axios.get(`https://api.domainsdb.info/v1/domains/search?domain=${domain}&zone=${tld}`, {
-      timeout: 9000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
+      timeout: 10000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
     });
-    const domains = r.data?.domains || [];
-    const match = domains.find(d => d.domain?.toLowerCase() === domain.toLowerCase());
+    const match = (r.data?.domains||[]).find(d => d.domain?.toLowerCase() === domain.toLowerCase());
     if (match?.create_date && calcDomainAge(result, match.create_date)) {
       result.attempts.push({ source: 'domainsdb', status: 'ok' });
       return result;
     }
     result.attempts.push({ source: 'domainsdb', status: 'no-match' });
-  } catch (e) {
-    result.attempts.push({ source: 'domainsdb', status: 'fail', error: e.message?.substring(0, 80) });
+  } catch(e) {
+    result.attempts.push({ source: 'domainsdb', status: 'fail', error: (e.code||e.message||'').substring(0,100) });
   }
 
-  result.error = 'All domain age lookups failed';
+  result.error = 'All domain age lookups failed — check /api/debug-domain-age?domain=' + domain;
   return result;
 }
 
@@ -1323,11 +1333,12 @@ async function extractBusinessInfo(html, domain) {
   // Also trigger when name looks like a domain slug (no spaces = camelCase/concatenated)
   const nameIsSlug = businessName && !businessName.includes(' ') && businessName.length > 6;
   if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug) {
+    // Regex: allow &, apostrophes, spaces — catches "CC Plumbing Service & Repair LLC"
     const contactNameMatch = bodyText.match(
-      /([A-Z][A-Za-z&\s]+(?:LLC|Inc|Corporation|Company|Service|Services|Repair|Plumbing|Mechanical)[A-Za-z&\s]*)/i
+      /([A-Z][A-Za-z0-9&'. -]{2,60}\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Repair|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners)(?:\s+LLC|\.?)?)/
     );
     if (contactNameMatch && contactNameMatch[1]) {
-      const detectedName = contactNameMatch[1].trim();
+      const detectedName = contactNameMatch[0].trim().replace(/\s+/g, ' ');
       if (detectedName.length > 5 && detectedName.length < 100) {
         businessName = detectedName;
       }
@@ -1385,17 +1396,19 @@ async function extractBusinessInfo(html, domain) {
 
   // --- Street address extraction: strict regex to prevent bleed into business name ---
   const addrMatch = bodyText.match(
-    /\b(\d{1,6}\s+[A-Za-z0-9][A-Za-z0-9\s.#-]{1,40}?\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl|Parkway|Pkwy|Highway)\.?)(?:,\s*[A-Za-z\s]{1,30},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
+    /\b(\d{1,6}\s+[A-Za-z0-9.][A-Za-z0-9\s.#-]{1,50}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)(?:[,.]?\s*(?:Suite|Ste\.?|Unit|Apt\.?|#)\s*[A-Za-z0-9-]+)?)(?:,\s*[A-Za-z\s]{1,30},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/i
   );
   if (addrMatch) {
     const rawMatch = addrMatch[0].substring(0, 120).trim();
     const parsed = parseUSAddress(rawMatch);
 
-    // Sanitize street: strip LLC/Inc/business suffixes that bleed in
+    // Sanitize street: strip business name suffixes that bleed AFTER the street address
+    // Only strip if suffix appears MORE than 3 words after start (not the street type itself)
     if (parsed.street) {
       parsed.street = parsed.street
         .replace(/\s{2,}/g, ' ')
-        .replace(/\s+(LLC|Inc\.?|Corp\.?|Co\.?|Ltd\.?|Company|Services?|Repair|Plumbing|Mechanical)\b.*/i, '')
+        // Must have at least 3 words before the suffix to avoid stripping "Rd" in "N. Opdyke Rd"
+        .replace(/^((?:\S+\s+){4,})(?:LLC|Inc\.?|Corp\.?|Co\.?|Ltd\.?|Company|Services?|Repair|Plumbing|Mechanical)\b.*/i, '$1')
         .trim();
     }
 
@@ -1418,8 +1431,9 @@ async function extractBusinessInfo(html, domain) {
   // 10. Country detection
   const country = detectCountry(html, domain, schema.address, contact.phones);
 
-  // 11. Domain age (RDAP)
-  const domainAge = await getDomainAge(domain);
+  // 11. Domain age — computed at endpoint level and injected, not here
+  // (placeholder filled in by endpoint after extractBusinessInfo returns)
+  const domainAge = { createdDate:null, updatedDate:null, expiresDate:null, ageInDays:null, ageText:null, registrar:null };
 
   // 12. Meta description
   const metaDescMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([\s\S]*?)["']/i);
@@ -1514,7 +1528,12 @@ app.post('/api/extract-business', async (req, res) => {
   if (cached) { console.log(`  [CACHE HIT] ${domain}`); return res.json(cached); }
 
   try {
-    const [dnsResults, httpResults] = await Promise.all([analyzeDNS(domain), analyzeHTTPStatus(domain)]);
+    // Run DNS, HTTP fetch, AND domain age all in parallel — no sequential waiting
+    const [dnsResults, httpResults, domainAgeResult] = await Promise.all([
+      analyzeDNS(domain),
+      analyzeHTTPStatus(domain),
+      getDomainAge(domain)
+    ]);
     const { result: httpStatus, html } = httpResults;
 
     // Determine website status using same logic as analyze
@@ -1541,12 +1560,14 @@ app.post('/api/extract-business', async (req, res) => {
 
     let business = await extractBusinessInfo(html, domain);
 
-    // If homepage gave no address/phone, try fetching the contact subpage
-    const needsContactPage = (
-      !business.address.city &&
-      !business.address.street &&
-      business.phones.length === 0
-    );
+    // Inject domain age (computed in parallel above)
+    business.domainAge     = domainAgeResult;
+    business.domainAgeText = domainAgeResult.ageText || null;
+    business.domainCreated = domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0, 10) : null;
+    business.registrar     = domainAgeResult.registrar || null;
+
+    // Fetch contact page if street is missing (we need full address, city alone isn't enough)
+    const needsContactPage = !business.address.street;
     if (needsContactPage) {
       const contactHtml = await fetchContactPage(domain, html);
       if (contactHtml) {
@@ -1572,7 +1593,7 @@ app.post('/api/extract-business', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.2', cache:CACHE.size }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.3', cache:CACHE.size }));
 
 // === DOMAIN AGE DEBUG ENDPOINT ===
 // Hit: GET /api/debug-domain-age?domain=ccplumbingservice.com
