@@ -1163,19 +1163,35 @@ function parseUSAddress(rawAddress) {
   const result = { street: '', city: '', state: '', zip: '' };
   if (!rawAddress) return result;
 
-  const addr = rawAddress.replace(/\s+/g, ' ').trim();
+  const addr = decodeHTML(String(rawAddress))
+    .replace(/[\[\]{}<>]/g, ' ')
+    .replace(/[|]/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   // Extract ZIP code (US 5-digit or 5+4)
   const zipMatch = addr.match(/\b(\d{5}(?:-\d{4})?)\b/);
   if (zipMatch) result.zip = zipMatch[1];
 
-  // Extract state code (must appear before ZIP or after comma)
-  for (const code of US_STATE_CODES) {
-    // Match ", ST" or ", ST 12345" or "ST 12345"
-    const re = new RegExp('(?:,\\s*|\\s+)(' + code + ')\\b(?:\\s+\\d{5})?', 'i');
-    const m = addr.match(re);
-    if (m) { result.state = code; break; }
+  // Prefer explicit ", City, ST ZIP" / ", City ST ZIP" tail patterns
+  let tail = addr.match(/,\s*([A-Za-z][A-Za-z\s.'-]{1,40}),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?\b/);
+  if (!tail) {
+    tail = addr.match(/,\s*([A-Za-z][A-Za-z\s.'-]{1,40})\s+([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?\b/);
   }
+  if (tail) {
+    result.city = tail[1].trim();
+    result.state = tail[2].toUpperCase();
+    if (tail[3]) result.zip = tail[3];
+  }
+
+  // Fallback: extract state code only from end-ish context (avoid street suffixes like Ct/Ct.)
+  if (!result.state) {
+    for (const code of US_STATE_CODES) {
+      const re = new RegExp('(?:,\\s*|\\s)(' + code + ')(?:\\s+\\d{5}(?:-\\d{4})?)?(?:\\s*$|[,])');
+      const m = addr.match(re);
+      if (m) { result.state = code; break; }
+    }
+    }
   // Try full state names
   if (!result.state) {
     for (const [code, name] of Object.entries(US_STATES)) {
@@ -1249,6 +1265,16 @@ function parseUSAddress(rawAddress) {
     }
   }
 
+  // Strip dangling punctuation / special suffix artifacts
+  if (result.street) {
+    result.street = result.street
+      .replace(/[\]\[{}<>]+/g, ' ')
+      .replace(/[•·]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/[,;:\-]+$/, '')
+      .trim();
+  }
+  
    // Clean up city - remove any trailing state/zip
    result.city = result.city.replace(/\s+[A-Z]{2}\s*\d{5}.*$/, '').replace(/\s+[A-Z]{2}\s*$/, '').trim();
  
@@ -1748,6 +1774,8 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
       const overlap = countDomainOverlap(candidate);
       const hasLegalEntity = /\b(LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
       if (overlap === 0 && !hasLegalEntity) continue;
+      const hasLegalEntity = /\b(LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
+      if (overlap === 0 && !hasLegalEntity) continue;
       const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
       const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
       if (score > bestCandidateScore) {
@@ -1811,12 +1839,12 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
    }
  
    // --- Street address extraction: strict regex to prevent bleed into business name ---
-   const addrMatch = bodyText.match(
-     /(?:^|[\n\r\s])(\d{1,5}\s+[A-Za-z][A-Za-z0-9\s.#-]{1,50}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:,?\s+(?:Suite|Ste\.?|Bldg\.?|Building|Unit|Apt\.?|Floor|Fl\.?)\s*[#]?[A-Za-z0-9-]+)?)(?:,\s*[A-Za-z\s]{1,30},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/im
-   );
-   if (addrMatch) {
-     const rawMatch = addrMatch[0].substring(0, 120).trim();
-     const parsed = parseUSAddress(rawMatch);
+     const addrMatch = bodyText.match(
+    /(?:^|[\n\r\s])(\d{1,6}\s+[A-Za-z][A-Za-z0-9\s.#'&/,-]{1,85}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:,?\s+(?:Suite|Ste\.?|Bldg\.?|Building|Unit|Apt\.?|Floor|Fl\.?)\s*[#]?[A-Za-z0-9-]+)?)(?:,\s*[A-Za-z\s]{1,40},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/im
+  );
+  if (addrMatch) {
+    const rawMatch = (addrMatch[1] || addrMatch[0]).substring(0, 160).trim();
+    const parsed = parseUSAddress(rawMatch);
  
      // Sanitize street: strip business name suffixes that bleed AFTER the street address
      if (parsed.street) {
