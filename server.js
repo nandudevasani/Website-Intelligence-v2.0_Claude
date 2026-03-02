@@ -413,8 +413,12 @@ function analyzeContent(html, domain, finalUrl) {
 
     const realBusinessSignals = [hasPhone, hasEmail, hasWhatsApp, hasSocial].filter(Boolean);
 
-    if (realBusinessSignals.length >= 1) {
-      // Has at least one real business signal — downgrade from SHELL to ACTIVE
+    // Filter out template-default signals (GoDaddy filler emails, placeholder phones)
+    const hasFillerEmail = /mailto:(?:filler|noreply|no-reply)@/i.test(html);
+    const cleanSignalCount = realBusinessSignals.length - (hasFillerEmail && hasEmail ? 1 : 0);
+
+    if (cleanSignalCount >= 2) {
+      // Has 2+ genuine business signals — real business on a template, mark VALID
       analysis.verdict = 'VALID';
       analysis.confidence = Math.min(40 + realBusinessSignals.length * 15, 80);
       analysis.reasons.push('Template-style site but has real business contact signals (' +
@@ -930,6 +934,15 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
   return expanded.filter(Boolean).join(' ') || domain;
 }
 
+function extractOGMeta(html) {
+  const get = (prop) => {
+    const m = html.match(new RegExp('<meta[^>]*property=["\']og:' + prop + '["\'][^>]*content=["\']([^"\']*)["\']', 'i'))
+           || html.match(new RegExp('<meta[^>]*content=["\']([^"\']*)["\'][^>]*property=["\']og:' + prop + '["\']', 'i'));
+    return m ? m[1].trim() : null;
+  };
+  return { siteName: get('site_name'), title: get('title'), description: get('description'), image: get('image'), url: get('url'), type: get('type') };
+}
+
 function extractSocialLinks(html) {
   const socials = { facebook:null, twitter:null, instagram:null, linkedin:null, youtube:null, tiktok:null, pinterest:null, yelp:null, whatsapp:null };
 
@@ -1206,16 +1219,55 @@ function parseUSAddress(rawAddress) {
      return { code: c, name: c, confidence: 'high' };
    }
  
-     // Priority 2: Country TLD
-  for (const [tld, country] of Object.entries(COUNTRY_TLDS)) {
-    if (domain.endsWith(tld)) {
-      const code = tld.replace(/^\.(?:com?\.)?/, '').toUpperCase();
-      return { code, name: country, confidence: 'high' };
-    }
-  }
+   // Priority 2: Country TLD
+   for (const [tld, country] of Object.entries(COUNTRY_TLDS)) {
+     if (domain.endsWith(tld)) {
+       const code = tld.replace(/^\.(?:com?\.)?/, '').toUpperCase();
+       return { code, name: country, confidence: 'high' };
+     }
+   }
 
-  // Fallback
-  return { code: 'UNKNOWN', name: 'Unknown', confidence: 'low' };
+   // Priority 3: US ZIP code in text (strongest US signal after schema)
+   const bodyText = html.replace(/<[^>]+>/g, ' ');
+   const hasUSZip = /,\s*[A-Z]{2}\s+\d{5}\b/.test(bodyText);
+   const hasCAPostal = CA_POSTAL.test(bodyText);
+
+   // Priority 4: Phone prefix
+   if (phones && phones.length > 0) {
+     for (const [regex, country] of PHONE_COUNTRY) {
+       if (phones.some(p => regex.test(p))) {
+         if (country === 'USA/Canada') {
+           // Strict Canada check: require postal code or province+postal pattern
+           if (hasCanadianAddress(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'medium' };
+           return { code: 'US', name: 'United States', confidence: 'medium' };
+         }
+         return { code: country.substring(0, 2).toUpperCase(), name: country, confidence: 'medium' };
+       }
+     }
+   }
+
+   // Priority 5: Canadian postal code (without phone)
+   if (hasCAPostal && !hasUSZip) return { code: 'CA', name: 'Canada', confidence: 'medium' };
+
+   // Priority 6: UK postcode
+   if (UK_POSTAL.test(bodyText) && !hasUSZip) return { code: 'GB', name: 'United Kingdom', confidence: 'medium' };
+
+   // Priority 7: US state codes in body text (e.g. ", CA 90210")
+   if (hasUSZip) return { code: 'US', name: 'United States', confidence: 'medium' };
+
+   // Priority 8: US phone pattern (10-digit) in body text
+   const usPhoneCount = (bodyText.match(/\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g) || []).length;
+   if (usPhoneCount > 0 && /\.(com|net|org|us|info|biz)$/i.test(domain)) {
+     return { code: 'US', name: 'United States', confidence: 'low' };
+   }
+
+   // Priority 9: Currency symbols
+   if (/\$CAD|\bCAD\b.*\$/i.test(html)) return { code: 'CA', name: 'Canada', confidence: 'low' };
+   if (/£\d/.test(html)) return { code: 'GB', name: 'United Kingdom', confidence: 'low' };
+   if (/A\$\d|AUD/.test(html)) return { code: 'AU', name: 'Australia', confidence: 'low' };
+   if (/€\d|EUR/.test(html)) return { code: 'EU', name: 'Europe', confidence: 'low' };
+
+   return { code: 'UNKNOWN', name: 'Unknown', confidence: 'none' };
 }
 
  // === DOMAIN AGE VIA RDAP / WHOIS ===
@@ -1419,8 +1471,43 @@ function parseUSAddress(rawAddress) {
  async function extractBusinessInfo(html, domain) {
    const bodyText = html
      .replace(/<script[\s\S]*?<\/script>/gi, '')
+     .replace(/<style[\s\S]*?<\/style>/gi, '')
+     .replace(/<[^>]+>/g, ' ')
+     .replace(/&[a-z]+;/gi, ' ')
+     .replace(/\s+/g, ' ')
+     .trim();
 
+   // 1. Schema.org JSON-LD (most structured data source)
+   const schema = extractSchemaOrg(html);
+
+   // 2. Open Graph meta tags
+   const og = extractOGMeta(html);
+
+   // 3. Title tag
+   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+   const rawTitle = titleMatch ? decodeHTML(titleMatch[1].trim().replace(/\s+/g, ' ')) : null;
+
+   // 4. Decode schema/OG values
+   const cleanSchemaName = schema.name ? decodeHTML(schema.name) : null;
    const cleanOGSiteName = og.siteName ? decodeHTML(og.siteName) : null;
+
+   // 4b. Social links
+   const socials = extractSocialLinks(html);
+
+   // 4c. Address init + schema address parsing
+   let address = { street:'', city:'', state:'', zip:'' };
+   if (schema.address) {
+     if (schema.address.street || schema.address.city) {
+       address = {
+         street: schema.address.street || '',
+         city: schema.address.city || '',
+         state: schema.address.state || '',
+         zip: schema.address.zip ? String(schema.address.zip) : ''
+       };
+     } else if (schema.address.raw) {
+       address = parseUSAddress(schema.address.raw);
+     }
+   }
  
    // 5. Footer/Copyright extraction for business name
    let footerName = null;
@@ -1475,6 +1562,18 @@ function parseUSAddress(rawAddress) {
  
    // 7. Contact info
    const contact = extractContactInfo(html, bodyText);
+
+   // Merge schema phone/email (JSON-LD is highly structured — trust it)
+   if (schema.phone) {
+     const schemaDigits = schema.phone.replace(/\D/g, '');
+     if (!contact.phones.some(p => p.replace(/\D/g, '') === schemaDigits)) contact.phones.unshift(schema.phone);
+   }
+   if (schema.email) {
+     const se = schema.email.toLowerCase();
+     if (!contact.emails.includes(se)) contact.emails.unshift(se);
+   }
+   // Filter filler/placeholder emails
+   contact.emails = contact.emails.filter(e => !/filler@|noreply@|no-reply@|donotreply@|placeholder/i.test(e));
  
    // Strong fallback: detect business name from contact block
 // Also trigger when name looks like a domain slug (no spaces = camelCase/concatenated)
@@ -1728,13 +1827,13 @@ app.post('/api/extract-business', async (req, res) => {
 
     // If site is dead/down/suspended, skip business extraction (reuse domainAgeResult from above)
     if (['DEAD', 'DOWN', 'SUSPENDED'].includes(websiteStatus)) {
-      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, socials: {}, domainAge: domainAgeResult, domainAgeText: domainAgeResult.ageText || null, domainCreated: domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0,10) : null, registrar: domainAgeResult.registrar || null, metaDescription: null, businessType: null } });
+      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, socials: {}, domainAge: { ...domainAgeResult, ageFormatted: domainAgeResult.ageText || null }, domainAgeText: domainAgeResult.ageText || null, domainCreated: domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0,10) : null, registrar: domainAgeResult.registrar || null, metaDescription: null, businessType: null } });
     }
 
     let business = await extractBusinessInfo(html, domain);
 
     // Inject domain age (computed in parallel above)
-    business.domainAge     = domainAgeResult;
+    business.domainAge     = { ...domainAgeResult, ageFormatted: domainAgeResult.ageText || null };
     business.domainAgeText = domainAgeResult.ageText || null;
     business.domainCreated = domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0, 10) : null;
     business.registrar     = domainAgeResult.registrar || null;
