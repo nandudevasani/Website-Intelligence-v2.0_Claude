@@ -1840,7 +1840,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
       // Score: domain overlap is most important, then prefer LONGER names (full business name)
       // Then prefer names with more capitalized words (proper noun signal)
       const overlap = countDomainOverlap(candidate);
-      const hasLegalEntity = /\b(LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
+      const hasLegalEntity = typeof candidate === 'string' && /\b(?:LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
       if (overlap === 0 && !hasLegalEntity) continue;
       const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
       const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
