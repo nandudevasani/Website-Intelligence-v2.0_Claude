@@ -1256,37 +1256,65 @@ function parseUSAddress(rawAddress) {
  }
  
  async function getDomainAge(domain) {
-   const result = { createdDate:null, updatedDate:null, expiresDate:null, ageInDays:null, ageText:null, registrar:null, error:null, attempts:[] };
-   const tld = domain.split('.').pop().toLowerCase();
- 
-   // ── TLD → RDAP endpoint map (direct registry, no intermediary) ──
-  // These are the authoritative RDAP servers per TLD from IANA bootstrap
-    const RDAP_ENDPOINTS = {
-      com:  'https://rdap.verisign.com/com/v1/domain/',
-      net:  'https://rdap.verisign.com/net/v1/domain/',
-      org:  'https://rdap.publicinterestregistry.org/rdap/domain/',
-      info: 'https://rdap.afilias.net/rdap/info/domain/',
-      biz:  'https://rdap.nic.biz/domain/',
-      io:   'https://rdap.nic.io/domain/',
-      co:   'https://rdap.nic.co/domain/',
-      ai:   'https://rdap.nic.ai/domain/',
-      app:  'https://rdap.nic.google/domain/'
-    };
-       const r = await axios.get(url, {
-         timeout: 8000,
-         validateStatus: s => s === 200,
-         headers: { Accept: 'application/rdap+json, application/json', 'User-Agent': 'Mozilla/5.0 DomainChecker/1.0' }
-       });
-       if (r.data?.events?.length) {
-         result.attempts.push({ source: name, status: 'ok' });
-         return r.data;
-       }
-       result.attempts.push({ source: name, status: 'no-events', keys: Object.keys(r.data||{}).slice(0,5).join(',') });
-     } catch(e) {
-       result.attempts.push({ source: name, status: 'fail', error: (e.code || e.message || 'unknown').substring(0,80) });
-     }
-     return null;
-   }
+  const result = {
+    createdDate: null,
+    updatedDate: null,
+    expiresDate: null,
+    ageInDays: null,
+    ageText: null,
+    registrar: null,
+    error: null,
+    attempts: []
+  };
+
+  const tld = domain.split('.').pop().toLowerCase();
+
+  // ── TLD → RDAP endpoint map (direct registry, no intermediary) ──
+  const RDAP_ENDPOINTS = {
+    com:  'https://rdap.verisign.com/com/v1/domain/',
+    net:  'https://rdap.verisign.com/net/v1/domain/',
+    org:  'https://rdap.publicinterestregistry.org/rdap/domain/',
+    info: 'https://rdap.afilias.net/rdap/info/domain/',
+    biz:  'https://rdap.nic.biz/domain/',
+    io:   'https://rdap.nic.io/domain/',
+    co:   'https://rdap.nic.co/domain/',
+    ai:   'https://rdap.nic.ai/domain/',
+    app:  'https://rdap.nic.google/domain/'
+  };
+
+  // ── Helper: try RDAP endpoint ──
+  async function tryRdap(name, url) {
+    try {
+      const r = await axios.get(url, {
+        timeout: 8000,
+        validateStatus: s => s === 200,
+        headers: {
+          Accept: 'application/rdap+json, application/json',
+          'User-Agent': 'Mozilla/5.0 DomainChecker/1.0'
+        }
+      });
+
+      if (r.data?.events?.length) {
+        result.attempts.push({ source: name, status: 'ok' });
+        return r.data;
+      }
+
+      result.attempts.push({
+        source: name,
+        status: 'no-events',
+        keys: Object.keys(r.data || {}).slice(0, 5).join(',')
+      });
+
+    } catch (e) {
+      result.attempts.push({
+        source: name,
+        status: 'fail',
+        error: (e.code || e.message || 'unknown').substring(0, 80)
+      });
+    }
+
+    return null;
+  }
  
    // Helper: try a WHOIS JSON API
    async function tryWhois(name, url, extract) {
