@@ -60,6 +60,44 @@ function extractRootDomain(url) {
   } catch { return ''; }
 }
 
+function isBoilerplateName(s) {
+  if (!s) return false;
+  const t = s.trim().toLowerCase();
+  return (
+    /my wordpress blog/i.test(t) ||
+    /just another wordpress site/i.test(t) ||
+    /another wordpress site/i.test(t) ||
+    /^wordpress$/i.test(t) ||
+    /wordpress starter/i.test(t) ||
+    /^(my site|my website|my blog|my home page|website)$/i.test(t) ||
+    /google\s+privacy\s+policy/i.test(t) ||
+    /privacy\s+policy\s+and\s+terms\s+of\s+service/i.test(t) ||
+    /terms\s+of\s+service/i.test(t) ||
+    /protected\s+by\s+recaptcha/i.test(t) ||
+    /this\s+site\s+is\s+protected/i.test(t) ||
+    /coming\s+soon/i.test(t) ||
+    /under\s+construction/i.test(t) ||
+    /\b(for sale|park model|for sale by owner|fsbo|listing)\b/i.test(t) ||
+    /^(home|index|untitled|default|new page|page \d+)$/i.test(t) ||
+    /^(hello world|sample page|test page)$/i.test(t)
+  );
+}
+
+function normalizeExtractedBusinessName(name) {
+  if (!name) return name;
+  let cleaned = name.replace(/\s+/g, ' ').trim();
+  // Collapse exact repeated halves: "Name Name" -> "Name"
+  const words = cleaned.split(' ');
+  if (words.length >= 4 && words.length % 2 === 0) {
+    const half = words.length / 2;
+    if (words.slice(0, half).join(' ').toLowerCase() === words.slice(half).join(' ').toLowerCase()) {
+      cleaned = words.slice(0, half).join(' ');
+    }
+  }
+  cleaned = cleaned.replace(/\((repeat(?:ed)?\s+\w+)\)$/i, '').trim();
+  return cleaned;
+}
+
 // === CDN / PLATFORM DOMAIN WHITELIST ===
 // These are CDN, hosting, and platform domains where finalUrl may land
 // but the site is NOT actually redirecting to a different website.
@@ -778,31 +816,9 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
   // Helper: is this an error page title?
   const isErrorTitle = (s) => /^(403|404|500|502|503|forbidden|not found|error|access denied|unavailable|page not found)/i.test(s?.trim());
 
-  // Helper: is this a known boilerplate/junk name that should never be used?
-  const isBoilerplateName = (s) => {
-    if (!s) return false;
-    const t = s.trim().toLowerCase();
-    return (
-      /my wordpress blog/i.test(t) ||
-      /just another wordpress site/i.test(t) ||
-      /another wordpress site/i.test(t) ||
-      /^wordpress$/i.test(t) ||
-      /wordpress starter/i.test(t) ||
-      /^(my site|my website|my blog|my home page|website)$/i.test(t) ||
-      /google\s+privacy\s+policy/i.test(t) ||
-      /terms\s+of\s+service/i.test(t) ||
-      /protected\s+by\s+recaptcha/i.test(t) ||
-      /this\s+site\s+is\s+protected/i.test(t) ||
-      /coming\s+soon/i.test(t) ||
-      /under\s+construction/i.test(t) ||
-      /(for sale|park model|for sale by owner|fsbo|listing)/i.test(t) ||  // property listings
-      /^(home|index|untitled|default|new page|page \d+)$/i.test(t) ||
-      /^(hello world|sample page|test page)$/i.test(t)
-    );
-  };
-
+  
   // Helper: clean trailing/leading junk from a name
-  const cleanName = (s) => s ? s.replace(/[•·|:–—\-]+$/, '').replace(/^[•·|:–—\-]+/, '').replace(/\s+/g, ' ').trim() : s;
+  const cleanName = (s) => s ? normalizeExtractedBusinessName(s.replace(/[•·|:–—\-]+$/, '').replace(/^[•·|:–—\-]+/, '').replace(/\s+/g, ' ').trim()) : s;
 
   // Helper: strip subtitle like "Name - A Fidelity Company"
   const stripSubtitle = (s) => {
@@ -1716,7 +1732,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
   let nm;
 
   while ((nm = nameRegex.exec(bodyText)) !== null) {
-    const candidate = nm[0].trim().replace(/\s+/g, ' ');
+    const candidate = normalizeExtractedBusinessName(nm[0].trim().replace(/\s+/g, ' '));
 
     // Skip if it contains obvious repetition (same word appears 3+ times)
     const words = candidate.toLowerCase().split(/\s+/);
@@ -1726,10 +1742,12 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
     if (maxRepeat >= 3) continue;
 
-    if (candidate.length > 5 && candidate.length < 80) {
+    if (candidate.length > 5 && candidate.length < 80 && !isBoilerplateName(candidate)) {
       // Score: domain overlap is most important, then prefer LONGER names (full business name)
       // Then prefer names with more capitalized words (proper noun signal)
       const overlap = countDomainOverlap(candidate);
+      const hasLegalEntity = /\b(LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
+      if (overlap === 0 && !hasLegalEntity) continue;
       const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
       const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
       if (score > bestCandidateScore) {
