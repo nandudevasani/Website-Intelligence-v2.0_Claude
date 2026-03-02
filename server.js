@@ -1206,14 +1206,18 @@ function parseUSAddress(rawAddress) {
      return { code: c, name: c, confidence: 'high' };
    }
  
-   // Priority 2: Country TLD
-   for (const [tld, country] of Object.entries(COUNTRY_TLDS)) {
-     if (domain.endsWith(tld)) {
-       const code = tld.replace(/^\.(?:com?\.)?/, '').toUpperCase();
-       return { code, name: country, confidence: 'high' };
-     }
-   }
- 
+     // Priority 2: Country TLD
+  for (const [tld, country] of Object.entries(COUNTRY_TLDS)) {
+    if (domain.endsWith(tld)) {
+      const code = tld.replace(/^\.(?:com?\.)?/, '').toUpperCase();
+      return { code, name: country, confidence: 'high' };
+    }
+  }
+
+  // Fallback
+  return { code: 'UNKNOWN', name: 'Unknown', confidence: 'low' };
+}
+
  // === DOMAIN AGE VIA RDAP / WHOIS ===
  
  // Shared age calculator
