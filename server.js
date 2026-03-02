@@ -1774,8 +1774,6 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
       const overlap = countDomainOverlap(candidate);
       const hasLegalEntity = /\b(LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
       if (overlap === 0 && !hasLegalEntity) continue;
-      const hasLegalEntity = /\b(LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
-      if (overlap === 0 && !hasLegalEntity) continue;
       const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
       const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
       if (score > bestCandidateScore) {
