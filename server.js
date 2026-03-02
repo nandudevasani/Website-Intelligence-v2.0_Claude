@@ -2,10 +2,18 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve index.html at root
+app.use(express.static(__dirname));
 
 // ============================================================
 // CONFIGURATION
@@ -830,8 +838,8 @@ async function scanDomain(domain) {
 // ============================================================
 
 // Health check
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Website Intelligence Scanner v2.0 — Rebuilt" });
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", message: "Website Intelligence Scanner v2.0" });
 });
 
 // Batch scan: 2 domains at a time (safe for Render 30s timeout with multi-page crawl)
