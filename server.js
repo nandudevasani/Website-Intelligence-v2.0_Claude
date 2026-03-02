@@ -102,87 +102,6 @@ function normalizeExtractedBusinessName(name) {
   cleaned = cleaned.replace(/\((repeat(?:ed)?\s+\w+)\)$/i, '').trim();
   return cleaned;
 }
-function hasDuplicatedBusinessPhrase(name) {
-  if (!name) return false;
-  const words = name.trim().split(/\s+/);
-  if (words.length < 4 || words.length % 2 !== 0) return false;
-  const half = words.length / 2;
-  return words.slice(0, half).join(' ').toLowerCase() === words.slice(half).join(' ').toLowerCase();
-}
-
-function cleanAddressPart(value) {
-  return (value || '').trim().replace(/,+$/, '').trim();
-}
-
-function validateUSAddressFields(address, rawAddress) {
-  const street = cleanAddressPart(address.street);
-  const city = cleanAddressPart(address.city);
-  const state = cleanAddressPart(address.state);
-  const zip = cleanAddressPart(address.zip);
-  const raw = (rawAddress || '').trim();
-
-  const hasRawZip = /\b\d{5}\b/.test(raw);
-  const hasRawState = /\b[A-Z]{2}\b/.test(raw);
-  const hasRawStreetLike = /\b\d{1,6}\s+/.test(raw);
-  const hasRawCityStateZip = /([A-Za-z\s]+)\s+([A-Z]{2})\s+(\d{5})$/.test(raw);
-
-  const cityIsNotNumeric = !/^\d+$/.test(city);
-  const zipIsValid = zip === '' ? !hasRawZip : /^\d{5}$/.test(zip);
-  const stateIsValid = state === '' ? !hasRawState : /^[A-Z]{2}$/.test(state);
-  const streetNoCityState = !street || (!city || !new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(street))
-    && (!state || !new RegExp(`\\b${state}\\b`, 'i').test(street));
-  const zipNotInCity = !city || !/\d{5}/.test(city);
-  const nonBlankWhenPresentInRaw = (!hasRawStreetLike || !!street) && (!hasRawCityStateZip || (!!city && !!state && !!zip));
-
-  const passed = cityIsNotNumeric && zipIsValid && stateIsValid && streetNoCityState && zipNotInCity && nonBlankWhenPresentInRaw;
-  return { passed, street, city, state, zip };
-}
-
-function applyAddressValidationAndCorrection(address, rawAddress) {
-  let corrected = false;
-  let normalized = {
-    street: cleanAddressPart(address.street),
-    city: cleanAddressPart(address.city),
-    state: cleanAddressPart(address.state).toUpperCase(),
-    zip: cleanAddressPart(address.zip),
-  };
-
-  let validation = validateUSAddressFields(normalized, rawAddress);
-
-  if (!validation.passed) {
-    const fallbackMatch = (rawAddress || '').trim().match(/(.*)\s([A-Za-z\s]+)\s([A-Z]{2})\s(\d{5})$/);
-    if (fallbackMatch) {
-      corrected = true;
-      normalized = {
-        street: cleanAddressPart(fallbackMatch[1]),
-        city: cleanAddressPart(fallbackMatch[2]),
-        state: cleanAddressPart(fallbackMatch[3]).toUpperCase(),
-        zip: cleanAddressPart(fallbackMatch[4]),
-      };
-
-      if (normalized.street && normalized.city) {
-        const cityAtEnd = new RegExp(`,?\\s*${normalized.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i');
-        normalized.street = cleanAddressPart(normalized.street.replace(cityAtEnd, ''));
-      }
-      validation = validateUSAddressFields(normalized, rawAddress);
-    }
-  }
-
-  if (!validation.passed) {
-    console.log('AUDIT WARNING: Address parsing failed after correction');
-  }
-
-  return {
-    address: {
-      street: validation.street,
-      city: validation.city,
-      state: validation.state,
-      zip: validation.zip,
-    },
-    corrected,
-    validationPassed: validation.passed,
-  };
-}
 
 // === CDN / PLATFORM DOMAIN WHITELIST ===
 // These are CDN, hosting, and platform domains where finalUrl may land
@@ -1795,22 +1714,19 @@ const rawInput = decodeHTML(String(rawAddress));
    const socials = extractSocialLinks(html);
 
    // 4c. Address init + schema address parsing
-    let address = { street:'', city:'', state:'', zip:'' };
-    let rawAddressForAudit = '';
-    if (schema.address) {
-      if (schema.address.street || schema.address.city) {
-        address = {
-          street: schema.address.street || '',
-          city: schema.address.city || '',
-          state: schema.address.state || '',
-          zip: schema.address.zip ? String(schema.address.zip) : ''
-      };
-      rawAddressForAudit = [schema.address.street, schema.address.city, schema.address.state, schema.address.zip].filter(Boolean).join(' ');
-    } else if (schema.address.raw) {
-      address = parseUSAddress(schema.address.raw);
-      rawAddressForAudit = schema.address.raw;
-    }
-  }
+   let address = { street:'', city:'', state:'', zip:'' };
+   if (schema.address) {
+     if (schema.address.street || schema.address.city) {
+       address = {
+         street: schema.address.street || '',
+         city: schema.address.city || '',
+         state: schema.address.state || '',
+         zip: schema.address.zip ? String(schema.address.zip) : ''
+       };
+     } else if (schema.address.raw) {
+       address = parseUSAddress(schema.address.raw);
+     }
+   }
  
    // 5. Footer/Copyright extraction for business name
    let footerName = null;
@@ -1964,7 +1880,6 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
     businessName = nameCandidate;
   } else if (schema.address?.raw) {
     address = parseUSAddress(schema.address.raw);
-    rawAddressForAudit = schema.address.raw;
   }
 }
  
@@ -2020,7 +1935,6 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
   );
   if (addrMatch) {
     const rawMatch = (addrMatch[0] || '').substring(0, 200).trim();
-    if (rawMatch) rawAddressForAudit = rawMatch;
     const parsed = parseUSAddress(rawMatch);
  
      // Sanitize street: strip business name suffixes that bleed AFTER the street address
@@ -2059,53 +1973,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
   // Ensure ZIP preserves leading zeros
   if (address.zip && /^\d{4}$/.test(address.zip)) address.zip = '0' + address.zip;
-// 9b. Post-parse business name validation + correction
-  const disallowedNamePattern = /(privacy|terms|cookie|recaptcha)/i;
-  const candidateSignals = [businessName, cleanH1, cleanSchemaName, cleanOGSiteName, rawTitle, footerName];
-  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Solutions?|Repair|Removal|Junk\s+Removal|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners|Enterprises?|Construction|Restoration|Properties|Realty|Holdings|Builders?|Hauling|Disposal|Electric(?:al)?|Roofing|Heating|Cooling|Landscaping|Painting|Contracting|Agency|Consulting|Studio|Design|Media|Logistics|Moving|Storage|Cleaning|Flooring|Paving|Fencing|Welding|Towing|Auto|Dental|Legal|Financial|Insurance|Advisors?|Interiors?|Exteriors?|Renovations?|Inspections?|Demolition|Excavat(?:ing|ion))(?:[ \t]+LLC|\.?)?)/g;
-  const bodyCandidates = [...bodyText.matchAll(nameRegex)].map(m => normalizeExtractedBusinessName((m[0] || '').trim())).filter(Boolean);
-  const rawCandidates = [...new Set([...candidateSignals, ...bodyCandidates].filter(Boolean).map(c => c.trim()).filter(Boolean))];
 
-  const scoreNameCandidate = (candidate) => {
-    const overlap = countDomainOverlap(candidate);
-    const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
-    return overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
-  };
-
-  const validateBusinessNameCandidate = (candidate) => {
-    if (!candidate) return false;
-    if (disallowedNamePattern.test(candidate)) return false;
-    if (candidate.trim().length < 4) return false;
-    if (candidate.trim().toLowerCase() === domain.toLowerCase()) return false;
-    if (looksLikeWeakName(candidate)) return false;
-    if (hasDuplicatedBusinessPhrase(candidate)) return false;
-    return true;
-  };
-
-  const orderedCandidates = rawCandidates
-    .map(candidate => ({ candidate, score: scoreNameCandidate(candidate) }))
-    .sort((a, b) => b.score - a.score);
-
-  let finalBusinessName = null;
-  for (const option of orderedCandidates) {
-    if (validateBusinessNameCandidate(option.candidate)) {
-      finalBusinessName = option.candidate;
-      break;
-    }
-  }
-  if (finalBusinessName) {
-    businessName = finalBusinessName;
-  } else {
-    console.log('AUDIT WARNING: No valid business name after correction');
-  }
-
-  // 9c. Post-parse address validation + correction
-  if (!rawAddressForAudit) {
-    rawAddressForAudit = [address.street, address.city, address.state, address.zip].filter(Boolean).join(' ');
-  }
-  const addressValidation = applyAddressValidationAndCorrection(address, rawAddressForAudit);
-  address = addressValidation.address;
-   
   // 10. Country detection
   const country = detectCountry(html, domain, schema.address, contact.phones);
 
@@ -2148,22 +2016,6 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
       hours: schema.hours.length > 0 ? schema.hours : null,
     },
     og: { siteName: og.siteName, image: og.image },
-    __audit: {
-      businessNameAudit: {
-        rawCandidates,
-        finalSelected: businessName,
-        validationPassed: !!finalBusinessName,
-      },
-      businessAddressAudit: {
-        rawAddress: rawAddressForAudit,
-        corrected: addressValidation.corrected,
-        finalStreet: address.street,
-        finalCity: address.city,
-        finalState: address.state,
-        finalZip: address.zip,
-        validationPassed: addressValidation.validationPassed,
-      },
-    },
   };
 }
 
@@ -2270,39 +2122,10 @@ app.post('/api/extract-business', async (req, res) => {
         if (!business.address.zip    && contactBusiness.address.zip)    business.address.zip    = contactBusiness.address.zip;
         if (business.phones.length === 0 && contactBusiness.phones.length > 0) business.phones = contactBusiness.phones;
         if (business.emails.length === 0 && contactBusiness.emails.length > 0) business.emails = contactBusiness.emails;
-        if (business.__audit && contactBusiness.__audit?.businessAddressAudit?.rawAddress) {
-          business.__audit.businessAddressAudit.rawAddress = contactBusiness.__audit.businessAddressAudit.rawAddress;
-        }
         console.log(`  [CONTACT PAGE] merged address/phone from contact subpage`);
       }
     }
-      const auditRawAddress = business.__audit?.businessAddressAudit?.rawAddress || [business.address.street, business.address.city, business.address.state, business.address.zip].filter(Boolean).join(' ');
-    const finalAddressValidation = applyAddressValidationAndCorrection(business.address, auditRawAddress);
-    business.address = finalAddressValidation.address;
-    if (business.__audit?.businessAddressAudit) {
-      business.__audit.businessAddressAudit.corrected = business.__audit.businessAddressAudit.corrected || finalAddressValidation.corrected;
-      business.__audit.businessAddressAudit.finalStreet = business.address.street;
-      business.__audit.businessAddressAudit.finalCity = business.address.city;
-      business.__audit.businessAddressAudit.finalState = business.address.state;
-      business.__audit.businessAddressAudit.finalZip = business.address.zip;
-      business.__audit.businessAddressAudit.validationPassed = finalAddressValidation.validationPassed;
-    }
 
-    const auditLog = business.__audit || {
-      businessNameAudit: { rawCandidates: [], finalSelected: business.businessName, validationPassed: true },
-      businessAddressAudit: {
-        rawAddress: [business.address.street, business.address.city, business.address.state, business.address.zip].filter(Boolean).join(' '),
-        corrected: false,
-        finalStreet: business.address.street,
-        finalCity: business.address.city,
-        finalState: business.address.state,
-        finalZip: business.address.zip,
-        validationPassed: true,
-      },
-    };
-    console.log(auditLog);
-
-    delete business.__audit;
     console.log(`  -> ${websiteStatus} | ${business.businessName} | Phones:${business.phones.length} Emails:${business.emails.length} | ${business.country.name}`);
     const bizResult = { domain, websiteStatus, reasons: contentAnalysis.reasons, business };
     res.json(bizResult);
