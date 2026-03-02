@@ -35,8 +35,17 @@ function decodeHTML(str) {
     .replace(/\s+/g, ' ').trim();
 }
 
- cacheSet(key, data) { CACHE.set(key, { data, expires: Date.now() + CACHE_TTL }); if (CACHE.size > 500) { const oldest = CACHE.keys().next().value; CACHE.delete(oldest); } }
+const CACHE = new Map();
+const CACHE_TTL = 10 * 60 * 1000;
 
+function cacheSet(key, data) {
+  CACHE.set(key, { data, expires: Date.now() + CACHE_TTL });
+  if (CACHE.size > 500) {
+    const oldest = CACHE.keys().next().value;
+    CACHE.delete(oldest);
+  }
+}
+ 
 function normalizeDomain(input) {
   let d = input.trim().toLowerCase();
   d = d.replace(/^(https?:\/\/)/, '').replace(/\/.*$/, '').replace(/^www\./, '');
