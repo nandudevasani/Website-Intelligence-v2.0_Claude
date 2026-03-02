@@ -1168,7 +1168,7 @@ function parseUSAddress(rawAddress) {
     .replace(/[|]/g, ', ')
     .replace(/\s+/g, ' ')
     .replace(/,+/g, ',')
-    .replace(/^\s*,|,\s*$/g, ''
+    .replace(/^\s*,|,\s*$/g, '')
     .trim();
   
  const cleanToken = (v = '') => String(v).replace(/^\s*,|,\s*$/g, '').replace(/\s+/g, ' ').trim();
