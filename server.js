@@ -783,9 +783,12 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
     if (!s) return false;
     const t = s.trim().toLowerCase();
     return (
-      /^my wordpress blog$/i.test(t) ||
-      /^just another wordpress site$/i.test(t) ||
+      /my wordpress blog/i.test(t) ||
+      /just another wordpress site/i.test(t) ||
+      /another wordpress site/i.test(t) ||
       /^wordpress$/i.test(t) ||
+      /wordpress starter/i.test(t) ||
+      /^(my site|my website|my blog|my home page|website)$/i.test(t) ||
       /google\s+privacy\s+policy/i.test(t) ||
       /terms\s+of\s+service/i.test(t) ||
       /protected\s+by\s+recaptcha/i.test(t) ||
@@ -843,7 +846,7 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
     }
     return cleanName(stripSubtitle(schemaName));
   }
-  if (footerName && footerName.length > 2 && footerName.length < 80 && isEnglish(footerName)) return cleanName(footerName);
+  if (footerName && footerName.length > 2 && footerName.length < 80 && isEnglish(footerName) && !isBoilerplateName(footerName) && !isDomainAsName(footerName, domain)) return cleanName(footerName);
   if (ogSiteName && ogSiteName.length > 2 && ogSiteName.length < 80 && isEnglish(ogSiteName) && !isErrorTitle(ogSiteName) && !isBoilerplateName(ogSiteName) && !isDomainAsName(ogSiteName, domain)) return cleanName(stripSubtitle(ogSiteName));
 
   if (rawTitle && isEnglish(rawTitle) && !isErrorTitle(rawTitle) && !isBoilerplateName(rawTitle)) {
@@ -858,7 +861,10 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
       const parts = name.split(separators).map(p => p.trim()).filter(p => p.length > 1);
       if (parts.length >= 2) {
         const domBase = domain.replace(/\.(com|net|org|info|biz|co|us|io|store|art|inc|godaddysites\.com)$/i, '').replace(/\d+/g, '');
-        const domWords = domBase.split(/[-_.]/).filter(w => w.length > 2);
+        const domWordsRaw = domBase.split(/[-_.]/).filter(w => w.length > 2);
+        // Also extract inner words: "bjunk" → also include "junk"
+        const domWords = [...domWordsRaw];
+        domWordsRaw.forEach(w => { if (w.length > 3) domWords.push(w.substring(1)); });
 
         let best = parts[0], bestScore = -1;
         for (let pi = 0; pi < parts.length; pi++) {
@@ -891,6 +897,8 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
           // Penalize generic service-only descriptions
           if (/^(hvac|plumbing|heating|cooling|electrical|roofing|cleaning|dental|legal|auto|real estate)\s+(service|solution|repair|company|specialist)/i.test(p)) score -= 4;
           if (/^(best|top|#?\d|trusted|affordable|professional|premier|quality|expert|local|official|leading|certified|licensed)\b/i.test(p)) score -= 5;
+          if (/^(our|my)\s+(service|product|team|work|project|portfolio|blog|story|mission)/i.test(p)) score -= 8;
+          if (/^(service|about|contact|home|faq|blog|testimonial|review|portfolio|gallery|pricing|team)/i.test(p) && p.split(/\s+/).length <= 2) score -= 8;
           if (/\b(dentist|plumber|lawyer|doctor|attorney|contractor|electrician|realtor|cleaning|repair|roofing|hvac|landscap)\w*\s*(in|near|for|of)?\s*$/i.test(p)) score -= 3;
           if (/^\w+(\s+\w+)?\s+(dentist|plumber|lawyer|doctor|attorney|contractor|electrician|realtor|cleaning|company)\s*$/i.test(p)) score -= 4;
           if (/\d[-\s]star/i.test(p)) score -= 5;
@@ -922,6 +930,29 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
     if (leadNumMatch) {
       const num = leadNumMatch[1];
       const rest = leadNumMatch[2];
+
+      // Special case: single letter after number = unit/abbreviation, keep together
+      // "14k" → "14K", "4b" → "4B", "1st" → "1st"
+      if (rest.length <= 2) {
+        return [num + rest.toUpperCase()];
+      }
+
+      // Check if it starts with a short prefix (1-2 chars) + longer word
+      // "4bjunk" → "4B" + "Junk", "14kshowcase" → "14K" + "Showcase"
+      // Try 1-char prefix first (more common: k=karat, b=brothers)
+      const prefix1 = rest.match(/^([a-z])([a-z]{3,})$/i);
+      const prefix2 = rest.match(/^([a-z]{2})([a-z]{3,})$/i);
+      // Prefer 1-char if it looks like an abbreviation (single letter)
+      const prefixMatch = prefix1 || prefix2;
+      if (prefixMatch) {
+        const prefix = prefixMatch[1];
+        const mainWord = prefixMatch[2];
+        // Split mainWord on any camelCase or just capitalize
+        const mainSplit = mainWord.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
+        const mainWords = mainSplit.map(s => s.charAt(0).toUpperCase() + s.slice(1));
+        return [num + prefix.toUpperCase(), ...mainWords];
+      }
+
       // Split the alphabetic rest on camelCase and capitalize
       const restSplit = rest.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
       const restWords = restSplit.map(s => s.charAt(0).toUpperCase() + s.slice(1));
@@ -1227,17 +1258,57 @@ function parseUSAddress(rawAddress) {
      }
    }
 
-   // Priority 3: US ZIP code in text (strongest US signal after schema)
-   const bodyText = html.replace(/<[^>]+>/g, ' ');
-   const hasUSZip = /,\s*[A-Z]{2}\s+\d{5}\b/.test(bodyText);
-   const hasCAPostal = CA_POSTAL.test(bodyText);
+   // Clean body text: strip scripts, styles, AND tags — prevents CSS/HTML artifact matches
+   const bodyText = html
+     .replace(/<script[\s\S]*?<\/script>/gi, '')
+     .replace(/<style[\s\S]*?<\/style>/gi, '')
+     .replace(/<[^>]+>/g, ' ')
+     .replace(/&[a-z]+;/gi, ' ')
+     .replace(/\s+/g, ' ');
 
-   // Priority 4: Phone prefix
+   // Valid US state codes for address matching
+   const US_STATE_SET = new Set([
+     'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA',
+     'ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK',
+     'OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'
+   ]);
+
+   // Priority 3: US ZIP code + state in body text (strongest US signal)
+   // Matches: ", FL 33404", "Naples FL 33404", "Naples, Florida 33404"
+   const usZipWithComma = /,\s*([A-Z]{2})\s+(\d{5})\b/.exec(bodyText);
+   const usZipNoComma = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+([A-Z]{2})\s+(\d{5})\b/.exec(bodyText);
+   const usFullState = /\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New\s+Hampshire|New\s+Jersey|New\s+Mexico|New\s+York|North\s+Carolina|North\s+Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode\s+Island|South\s+Carolina|South\s+Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West\s+Virginia|Wisconsin|Wyoming)\b/i.test(bodyText);
+
+   const hasUSZip = (usZipWithComma && US_STATE_SET.has(usZipWithComma[1])) ||
+                    (usZipNoComma && US_STATE_SET.has(usZipNoComma[2]));
+
+   if (hasUSZip) {
+     // Double-check Canadian: if STRICT Canadian postal + province found, it's Canada
+     if (hasCanadianAddress(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'medium' };
+     return { code: 'US', name: 'United States', confidence: 'high' };
+   }
+
+   // Priority 4: Full US state name in text (e.g. "Florida", "North Carolina")
+   if (usFullState && /\.(com|net|org|us|info|biz)$/i.test(domain)) {
+     return { code: 'US', name: 'United States', confidence: 'medium' };
+   }
+
+   // Priority 5: US toll-free numbers (800, 833, 844, 855, 866, 877, 888)
+   const allPhoneText = (phones || []).join(' ') + ' ' + bodyText;
+   const US_TOLL_FREE = /\b(800|833|844|855|866|877|888)[\s.\-]\d{3}[\s.\-]\d{4}\b/;
+   if (US_TOLL_FREE.test(allPhoneText)) {
+     if (hasCanadianAddress(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'medium' };
+     return { code: 'US', name: 'United States', confidence: 'high' };
+   }
+
+   // Priority 6: 10-digit US/CA phone pattern (with or without +1 prefix)
+   const hasUSPhone = /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/.test(allPhoneText);
+
+   // Priority 7: Phone with explicit international prefix
    if (phones && phones.length > 0) {
      for (const [regex, country] of PHONE_COUNTRY) {
        if (phones.some(p => regex.test(p))) {
          if (country === 'USA/Canada') {
-           // Strict Canada check: require postal code or province+postal pattern
            if (hasCanadianAddress(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'medium' };
            return { code: 'US', name: 'United States', confidence: 'medium' };
          }
@@ -1246,26 +1317,39 @@ function parseUSAddress(rawAddress) {
      }
    }
 
-   // Priority 5: Canadian postal code (without phone)
-   if (hasCAPostal && !hasUSZip) return { code: 'CA', name: 'Canada', confidence: 'medium' };
-
-   // Priority 6: UK postcode
-   if (UK_POSTAL.test(bodyText) && !hasUSZip) return { code: 'GB', name: 'United Kingdom', confidence: 'medium' };
-
-   // Priority 7: US state codes in body text (e.g. ", CA 90210")
-   if (hasUSZip) return { code: 'US', name: 'United States', confidence: 'medium' };
-
-   // Priority 8: US phone pattern (10-digit) in body text
-   const usPhoneCount = (bodyText.match(/\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g) || []).length;
-   if (usPhoneCount > 0 && /\.(com|net|org|us|info|biz)$/i.test(domain)) {
-     return { code: 'US', name: 'United States', confidence: 'low' };
+   // Priority 8: If US 10-digit phone on a generic TLD → US
+   if (hasUSPhone && /\.(com|net|org|us|info|biz)$/i.test(domain)) {
+     if (hasCanadianAddress(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'low' };
+     return { code: 'US', name: 'United States', confidence: 'medium' };
    }
 
-   // Priority 9: Currency symbols
-   if (/\$CAD|\bCAD\b.*\$/i.test(html)) return { code: 'CA', name: 'Canada', confidence: 'low' };
-   if (/£\d/.test(html)) return { code: 'GB', name: 'United Kingdom', confidence: 'low' };
-   if (/A\$\d|AUD/.test(html)) return { code: 'AU', name: 'Australia', confidence: 'low' };
-   if (/€\d|EUR/.test(html)) return { code: 'EU', name: 'Europe', confidence: 'low' };
+   // Priority 9: Canadian postal code — STRICT context required
+   // Must appear after a comma or city-like word, not random strings like product codes
+   // Real: "Toronto, ON M5V 3A8" or "M5V 3A8" at end of address block
+   // False: "model T4E 5K3", "ref B2C 3D4"
+   const strictCApat = /(?:,\s*[A-Z]{2}\s+|[Cc]anada\s+|[A-Z][a-z]+,?\s+(?:AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\s+)[A-Z]\d[A-Z]\s?\d[A-Z]\d/;
+   if (strictCApat.test(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'medium' };
+
+   // Priority 10: UK postcode — STRICT context required
+   // Must follow a comma or known UK city/county name, not random text
+   // Real: "London, SW1A 1AA" or ", EC2R 8AH"
+   // False: "model P2 0BX", "item B1 2CD"
+   const strictUKpat = /(?:,\s*|[Ll]ondon\s+|[Mm]anchester\s+|[Bb]irmingham\s+|[Ll]iverpool\s+|[Ll]eeds\s+|[Bb]ristol\s+|[Ss]heffield\s+|[Ee]dinburgh\s+|[Gg]lasgow\s+|[Cc]ardiff\s+|[Bb]elfast\s+|[Ee]ngland\s+|[Ss]cotland\s+|[Ww]ales\s+|United Kingdom\s+|UK\s+)[A-Z]{1,2}\d[A-Z\d]?\s\d[A-Z]{2}\b/;
+   if (strictUKpat.test(bodyText) && !hasUSPhone) return { code: 'GB', name: 'United Kingdom', confidence: 'medium' };
+
+   // Priority 11: Currency symbols (only on clean body text)
+   if (/\bCAD\b|\$\s*CAD/i.test(bodyText)) return { code: 'CA', name: 'Canada', confidence: 'low' };
+   if (/£\s*\d/.test(bodyText) && !hasUSPhone) return { code: 'GB', name: 'United Kingdom', confidence: 'low' };
+   if (/A\$\s*\d|\bAUD\b/.test(bodyText)) return { code: 'AU', name: 'Australia', confidence: 'low' };
+   if (/€\s*\d|\bEUR\b/.test(bodyText)) return { code: 'EU', name: 'Europe', confidence: 'low' };
+
+   // Priority 12: If any US phone pattern exists at all, weak US signal
+   if (hasUSPhone) return { code: 'US', name: 'United States', confidence: 'low' };
+
+   // Priority 13: Generic TLDs (.com/.net/.org) with US full state names → likely US
+   if (/\.(com|net|org)$/i.test(domain) && /\b(Florida|Texas|California|New York|Ohio|Georgia|Michigan|Illinois|Pennsylvania|North Carolina|Virginia|Arizona|Tennessee|Colorado|Washington)\b/i.test(bodyText)) {
+     return { code: 'US', name: 'United States', confidence: 'low' };
+   }
 
    return { code: 'UNKNOWN', name: 'Unknown', confidence: 'none' };
 }
@@ -1539,19 +1623,60 @@ function parseUSAddress(rawAddress) {
    // 6. Business name (cleaned) — now includes footer as a source
    let businessName = cleanBusinessName(rawTitle, cleanOGSiteName, cleanSchemaName, domain, footerName);
 
+  // Helper: count how many domain keywords appear in a string
+  const domRaw = domain.replace(/\.(com|net|org|info|biz|co|us|io|store|art|inc|godaddysites\.com)$/i, '');
+  // Extract domain words: split on hyphens, dots, digit-letter boundaries, and camelCase
+  const domWords = [];
+  domRaw.split(/[-_.]/).forEach(part => {
+    // Split at digit-to-letter and letter-to-digit boundaries: "4bjunk" → "4b", "junk"
+    // Also split camelCase: "bigMike" → "big", "Mike"
+    const subparts = part
+      .replace(/(\d)([a-zA-Z])/g, '$1 $2')   // "4bjunk" → "4b junk"
+      .replace(/([a-z])([A-Z])/g, '$1 $2')   // "bigMike" → "big Mike"
+      .split(/\s+/);
+    subparts.forEach(sp => {
+      const clean = sp.replace(/\d+/g, '');   // strip digits: "4b" → "b" (too short, filtered below)
+      if (clean.length > 2) domWords.push(clean.toLowerCase());
+      if (sp.length > 2) domWords.push(sp.toLowerCase());  // also keep with digits: "14k"
+      // Extra: if word starts with a single letter prefix + 3+ letter word, extract the inner word
+      // "bjunk" → "junk", "bservices" → "services"
+      if (clean.length > 3) {
+        const innerWord = clean.substring(1);  // strip single leading letter
+        if (innerWord.length > 2) domWords.push(innerWord.toLowerCase());
+      }
+    });
+  });
+  // Deduplicate
+  const uniqueDomWords = [...new Set(domWords)];
+
+  const countDomainOverlap = (str) => {
+    if (!str || uniqueDomWords.length === 0) return 0;
+    const sl = str.toLowerCase();
+    return uniqueDomWords.filter(dw => dw.length > 2 && sl.includes(dw)).length;
+  };
+
   const looksLikeWeakName = (n) => {
     if (!n) return true;
     const t = n.trim();
     return (
       t.length < 4 ||
       /^home$/i.test(t) ||
-      /^(welcome|contact|about|services?)$/i.test(t) ||
+      /^(welcome|contact|about|services?|our services|our team|our work|my blog|blog|portfolio|gallery)$/i.test(t) ||
+      /^(my|our)\s+(wordpress|blog|site|website|page)/i.test(t) ||
       /\.(com|net|org|info|biz)$/i.test(t) ||
       t.toLowerCase() === domain.toLowerCase()
     );
   };
 
-  if (looksLikeWeakName(businessName) && cleanH1 && cleanH1.length > 2 && cleanH1.length < 90) {
+  // If cleanBusinessName returned a name with ZERO domain overlap, check if H1 is better
+  const nameOverlap = countDomainOverlap(businessName);
+  const h1Overlap = countDomainOverlap(cleanH1);
+  if (nameOverlap === 0 && h1Overlap > 0 && cleanH1 && cleanH1.length > 2 && cleanH1.length < 90 && !isBoilerplateName(cleanH1)) {
+    businessName = cleanH1;
+  }
+
+  // Also fall back to H1 if name looks weak
+  if (looksLikeWeakName(businessName) && cleanH1 && cleanH1.length > 2 && cleanH1.length < 90 && !isBoilerplateName(cleanH1)) {
     businessName = cleanH1;
   }
 
@@ -1575,17 +1700,19 @@ function parseUSAddress(rawAddress) {
    // Filter filler/placeholder emails
    contact.emails = contact.emails.filter(e => !/filler@|noreply@|no-reply@|donotreply@|placeholder/i.test(e));
  
-   // Strong fallback: detect business name from contact block
+   // Strong fallback: detect business name from contact block or body
 // Also trigger when name looks like a domain slug (no spaces = camelCase/concatenated)
+// Also trigger when current name has ZERO overlap with domain keywords
 const nameIsSlug = businessName && !businessName.includes(' ') && businessName.length > 6;
+const currentNameOverlap = countDomainOverlap(businessName);
 
-if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug) {
+if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug || currentNameOverlap === 0) {
 
   // Scan all matches, pick the shortest clean one (avoids grabbing repeated carousel text)
-  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Repair|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners)(?:[ \t]+LLC|\.?)?)/g;
+  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Solutions?|Repair|Removal|Junk\s+Removal|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners|Enterprises?|Construction|Restoration|Properties|Realty|Holdings|Builders?|Hauling|Disposal|Electric(?:al)?|Roofing|Heating|Cooling|Landscaping|Painting|Contracting|Agency|Consulting|Studio|Design|Media|Logistics|Moving|Storage|Cleaning|Flooring|Paving|Fencing|Welding|Towing|Auto|Dental|Legal|Financial|Insurance|Advisors?|Interiors?|Exteriors?|Renovations?|Inspections?|Demolition|Excavat(?:ing|ion))(?:[ \t]+LLC|\.?)?)/g;
 
   let nameCandidate = null;
-  let shortestLen = 999;
+  let bestCandidateScore = -1;
   let nm;
 
   while ((nm = nameRegex.exec(bodyText)) !== null) {
@@ -1599,9 +1726,16 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
     if (maxRepeat >= 3) continue;
 
-    if (candidate.length > 5 && candidate.length < 80 && candidate.length < shortestLen) {
-      nameCandidate = candidate;
-      shortestLen = candidate.length;
+    if (candidate.length > 5 && candidate.length < 80) {
+      // Score: domain overlap is most important, then prefer LONGER names (full business name)
+      // Then prefer names with more capitalized words (proper noun signal)
+      const overlap = countDomainOverlap(candidate);
+      const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
+      const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
+      if (score > bestCandidateScore) {
+        nameCandidate = candidate;
+        bestCandidateScore = score;
+      }
     }
   }
 
@@ -1864,7 +1998,7 @@ app.post('/api/extract-business', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.6', cache:CACHE.size }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.7', cache:CACHE.size }));
 
 // Clear all cached results — call this after deploying fixes so stale data is gone immediately
 app.post('/api/cache-clear', (req, res) => {
