@@ -1162,7 +1162,24 @@ function extractSchemaOrg(html) {
 function parseUSAddress(rawAddress) {
   const result = { street: '', city: '', state: '', zip: '' };
   if (!rawAddress) return result;
+const rawInput = decodeHTML(String(rawAddress));
+  const rawLines = rawInput
+    .split(/\r?\n+/)
+    .map(l => l.trim())
+    .filter(Boolean);
 
+  // Address blobs from scraped tables can contain header rows and unrelated lines.
+  // Keep only the most address-like line when possible.
+  if (rawLines.length > 1) {
+    const headerOnly = /^\s*(street\s*address|address|city|state|zip|postal\s*code)\s*$/i;
+    const cityStateZipPattern = /\b[A-Za-z][A-Za-z\s.'-]{1,30}\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/;
+    const streetStartPattern = /^\d{1,6}\s+/;
+    const filteredLines = rawLines.filter(line => !headerOnly.test(line));
+    const preferredLine = filteredLines.find(line => cityStateZipPattern.test(line))
+      || filteredLines.find(line => streetStartPattern.test(line))
+      || filteredLines[0];
+    if (preferredLine) rawAddress = preferredLine;
+  }
   const addr = decodeHTML(String(rawAddress))
     .replace(/[\[\]{}<>]/g, ' ')
     .replace(/[|]/g, ', ')
@@ -1172,6 +1189,14 @@ function parseUSAddress(rawAddress) {
     .trim();
   
  const cleanToken = (v = '') => String(v).replace(/^\s*,|,\s*$/g, '').replace(/\s+/g, ' ').trim();
+   const stripPOBoxFromStreet = (street) => {
+    const s = cleanToken(street);
+    if (!s) return s;
+    return s
+      .replace(/(?:,?\s+|\s+)(?:P\.?\s*O\.?|POST\s+OFFICE)\s*BOX\s*#?\s*[A-Z0-9-]+\b.*$/i, '')
+      .replace(/[,;:\-]+$/, '')
+      .trim();
+  };
   const stripTrailingCityFromStreet = (street, city) => {
     const s = cleanToken(street);
     const c = cleanToken(city);
