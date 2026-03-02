@@ -1183,7 +1183,16 @@ function parseUSAddress(rawAddress) {
     result.state = tail[2].toUpperCase();
     if (tail[3]) result.zip = tail[3];
   }
-
+ // Also support non-comma format like: "267 DEDHAM St NORFOLK MA 02056"
+  if (!result.city || !result.state || !result.street) {
+    const noCommaFull = addr.match(/^(\d{1,6}\s+[A-Za-z0-9\s.#'&/,-]{2,90}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?))\s+([A-Za-z][A-Za-z\s.'-]{1,40})\s+([A-Z]{2})\s*(\d{5}(?:-\d{4})?)\b/i);
+    if (noCommaFull) {
+      if (!result.street) result.street = noCommaFull[1].trim();
+      if (!result.city) result.city = noCommaFull[2].trim();
+      if (!result.state) result.state = noCommaFull[3].toUpperCase();
+      if (!result.zip) result.zip = noCommaFull[4];
+    }
+  }
   // Fallback: extract state code only from end-ish context (avoid street suffixes like Ct/Ct.)
   if (!result.state) {
     for (const code of US_STATE_CODES) {
@@ -1794,7 +1803,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
    if (!address.street) {
      // Match 1-3 word city names immediately before state code + ZIP
      // Anchored to word start to avoid "Repair LLC Sanford, NC" matching
-     const cityStateZipMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z]{2})\s*(\d{5})\b/m);
+       const cityStateZipMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2}),?\s*([A-Z]{2})\s*(\d{5})\b/m);
      if (cityStateZipMatch) {
        const candidateCity = cityStateZipMatch[1].trim();
        const candidateState = cityStateZipMatch[2];
@@ -1809,7 +1818,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
      }
      // Also handle full state name: "Auburn, Maine 04210"
      if (!address.city) {
-      const fullStateMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})\b/m);
+         const fullStateMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2}),?\s*([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+)?)\s+(\d{5})\b/m);
        if (fullStateMatch) {
          const stateNameRaw = fullStateMatch[2].trim();
          const stateCode = Object.entries(US_STATES).find(([,name]) => name.toLowerCase() === stateNameRaw.toLowerCase())?.[0];
@@ -1823,7 +1832,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
     // Handle city/state without ZIP: "Austin, TX"
     if (!address.city) {
-      const cityStateOnlyMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z]{2})\b/m);
+        const cityStateOnlyMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2}),?\s*([A-Z]{2})\b/m);
       if (cityStateOnlyMatch) {
         const candidateCity = cityStateOnlyMatch[1].trim();
         const candidateState = cityStateOnlyMatch[2];
@@ -1838,10 +1847,10 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
  
    // --- Street address extraction: strict regex to prevent bleed into business name ---
      const addrMatch = bodyText.match(
-    /(?:^|[\n\r\s])(\d{1,6}\s+[A-Za-z][A-Za-z0-9\s.#'&/,-]{1,85}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:,?\s+(?:Suite|Ste\.?|Bldg\.?|Building|Unit|Apt\.?|Floor|Fl\.?)\s*[#]?[A-Za-z0-9-]+)?)(?:,\s*[A-Za-z\s]{1,40},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/im
+    /(?:^|[\n\r\s])(\d{1,6}\s+[A-Za-z][A-Za-z0-9\s.#'&/,-]{1,85}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:,?\s+(?:Suite|Ste\.?|Bldg\.?|Building|Unit|Apt\.?|Floor|Fl\.?)\s*[#]?[A-Za-z0-9-]+)?)(?:,?\s*[A-Za-z][A-Za-z\s.'-]{1,40},?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?/im
   );
   if (addrMatch) {
-    const rawMatch = (addrMatch[1] || addrMatch[0]).substring(0, 160).trim();
+    const rawMatch = (addrMatch[0] || '').substring(0, 200).trim();
     const parsed = parseUSAddress(rawMatch);
  
      // Sanitize street: strip business name suffixes that bleed AFTER the street address
