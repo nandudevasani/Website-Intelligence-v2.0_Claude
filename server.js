@@ -396,9 +396,41 @@ function analyzeContent(html, domain, finalUrl) {
   );
 
   if (isShellSite) {
+    // ── Real business override ──
+    // Even a minimal real business leaves traces: phone, email, WhatsApp, or social.
+    // If ANY of these exist, the site belongs to a real business — not a true shell.
+    const hasPhone   = /(?:tel:|href=["']tel:|(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})/i.test(html);
+    const hasEmail   = /mailto:[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i.test(html);
+    const hasWhatsApp = /wa\.me\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:/i.test(html);
+    const hasSocial  = /facebook\.com\/(?!sharer|share\.php|login|dialog|groups|hashtag|intent|plugins|php\?)[^"'\s<>]{3,}/i.test(html)
+                    || /instagram\.com\/[^"'\s<>]{3,}/i.test(html)
+                    || /linkedin\.com\/(company|in)\/[^"'\s<>]{2,}/i.test(html)
+                    || /tiktok\.com\/@[^"'\s<>]{2,}/i.test(html)
+                    || /twitter\.com\/[^"'\s<>]{2,}/i.test(html)
+                    || /x\.com\/[^"'\s<>]{2,}/i.test(html)
+                    || /youtube\.com\/(channel|c|user|@)[^"'\s<>]{2,}/i.test(html)
+                    || /yelp\.com\/biz\/[^"'\s<>]{2,}/i.test(html);
+
+    const realBusinessSignals = [hasPhone, hasEmail, hasWhatsApp, hasSocial].filter(Boolean);
+
+    if (realBusinessSignals.length >= 1) {
+      // Has at least one real business signal — downgrade from SHELL to ACTIVE
+      analysis.verdict = 'VALID';
+      analysis.confidence = Math.min(40 + realBusinessSignals.length * 15, 80);
+      analysis.reasons.push('Template-style site but has real business contact signals (' +
+        [hasPhone && 'phone', hasEmail && 'email', hasWhatsApp && 'WhatsApp', hasSocial && 'social'].filter(Boolean).join(', ') + ')');
+      analysis.flags.push('MINIMAL_SITE', 'BUILDER_DETECTED');
+      if (hasWhatsApp) analysis.flags.push('HAS_WHATSAPP');
+      if (hasPhone)    analysis.flags.push('HAS_PHONE');
+      if (hasEmail)    analysis.flags.push('HAS_EMAIL');
+      if (hasSocial)   analysis.flags.push('HAS_SOCIAL');
+      return analysis;
+    }
+
+    // No real business signals — confirmed shell
     analysis.verdict = 'SHELL_SITE';
     analysis.confidence = Math.min(55 + shellSignalCount * 7 + (titleRepeatCount >= 2 ? 10 : 0) + (hasBuilderIndicator ? 10 : 0) + (shellSignals.dropUsLine ? 5 : 0), 95);
-    analysis.reasons.push('Website is a template shell — only brand name, tagline, and contact form. No meaningful business content.');
+    analysis.reasons.push('Website is a template shell — no phone, email, WhatsApp, or social links found.');
     analysis.flags.push('SHELL_SITE');
     if (hasBuilderIndicator) analysis.flags.push('BUILDER_DETECTED');
     return analysis;
@@ -426,17 +458,36 @@ function analyzeContent(html, domain, finalUrl) {
   // ════════════════════════════════════════════════════════════
 
   const parkedPatterns = [
-    /this domain is (for sale|parked|available)/i, /buy this domain/i, /domain (is )?parked/i,
-    /parked (by|at|with|domain)/i, /this (webpage|page|site|website) is parked/i,
-    /domain (name )?for sale/i, /purchase this domain/i, /make (an )?offer (on|for) this domain/i,
-    /hugedomains|sedo|dan\.com|afternic|godaddy\s*auctions/i, /sedoparking/i, /above\.com/i,
-    /parkingcrew/i, /domainmarket/i, /is for sale[\s!.]/i, /inquire about (this|purchasing)/i,
-    /domain.*premium/i, /get this domain/i, /sponsored\s+listings/i, /related\s+searches/i
+    // High-confidence — unambiguous parked/for-sale language
+    /this domain is (for sale|parked|available)/i,
+    /buy this domain/i,
+    /domain (is )?parked/i,
+    /parked (by|at|with|domain)/i,
+    /this (webpage|page|site|website) is parked/i,
+    /domain (name )?for sale/i,
+    /purchase this domain/i,
+    /make (an )?offer (on|for) this domain/i,
+    /hugedomains|sedo\.com|dan\.com|afternic|godaddy\s*auctions/i,
+    /sedoparking/i,
+    /parkingcrew/i,
+    /domainmarket\.com/i,
+    // Tightened: must say "this domain is for sale" not "this plan is for sale"
+    /this\s+domain\s+is\s+for\s+sale/i,
+    /inquire about (this|purchasing)\s+this\s+domain/i,
+    // Tightened: "premium domain" only when preceded by parked-page context words
+    /(?:buy|purchase|acquire|own)\s+(?:this\s+)?(?:premium\s+)?domain/i,
+    // Tightened: "get this domain" only as a standalone CTA, not mid-sentence
+    /^get this domain[\s!.]|[^a-z]get this domain[\s!.]/i,
+    // Lower-confidence — need a partner signal
+    /sponsored\s+listings/i,
+    /related\s+searches/i,
   ];
 
   let parkedScore = 0;
   parkedPatterns.forEach(p => { if (p.test(html)) parkedScore += 20; });
-  if (parkedScore > 0) {
+  // Require 2+ signals (score >= 40) to avoid false positives on legit sites
+  // that happen to mention "related" or "sponsored" in their own content
+  if (parkedScore >= 40) {
     analysis.verdict = 'PARKED'; analysis.confidence = Math.min(parkedScore, 95);
     analysis.reasons.push('Domain appears to be parked or for sale'); analysis.flags.push('PARKED'); return analysis;
   }
@@ -504,7 +555,22 @@ function analyzeContent(html, domain, finalUrl) {
   // DETECTION 7: No Meaningful Content
   // ════════════════════════════════════════════════════════════
 
+  // Before flagging NO_CONTENT, check if this is a JS SPA (React/Vue/Angular)
+  // SPAs return shell HTML with an empty root div — all content loads via JS
+  const isSPA = (
+    /<div[^>]+id=["'](?:root|app|main|__next|__nuxt|vue-app)["']/i.test(html) ||
+    /data-reactroot|ng-version|data-server-rendered|__NEXT_DATA__|__NUXT__/i.test(html) ||
+    /<noscript[^>]*>[\s\S]{20,}<\/noscript>/i.test(html)  // noscript fallback = SPA
+  );
+
   if (analysis.details.wordCount < 10) {
+    if (isSPA) {
+      // SPA detected — site is active but JS-rendered, we can't read the content
+      analysis.verdict = 'VALID'; analysis.confidence = 55;
+      analysis.reasons.push('JavaScript single-page application — content loads dynamically (React/Vue/Angular)');
+      analysis.flags.push('SPA_DETECTED');
+      return analysis;
+    }
     analysis.verdict = 'NO_CONTENT'; analysis.confidence = 92;
     analysis.reasons.push('Page has virtually no text content (fewer than 10 words)'); return analysis;
   }
@@ -614,12 +680,12 @@ app.post('/api/analyze', async (req, res) => {
 app.post('/api/analyze/bulk', async (req, res) => {
   const { domains } = req.body;
   if (!domains || !Array.isArray(domains) || domains.length === 0) return res.status(400).json({ error:'Provide an array of domains' });
-  if (domains.length > 100) return res.status(400).json({ error:'Maximum 100 domains per request' });
+  if (domains.length > 50) return res.status(400).json({ error:'Maximum 50 domains per request' });
 
-  console.log(`\n[BULK] ${domains.length} domains`);
-  const results = [];
+  console.log(`\n[BULK] ${domains.length} domains — batched concurrency (10 at a time)`);
 
-  for (const rawDomain of domains) {
+  // Helper: analyze a single domain, never throws
+  async function analyzeSingleDomain(rawDomain) {
     try {
       const domain = normalizeDomain(rawDomain);
       const [dnsResults, sslResults, httpResults] = await Promise.all([analyzeDNS(domain), analyzeSSL(domain), analyzeHTTPStatus(domain)]);
@@ -640,12 +706,26 @@ app.post('/api/analyze/bulk', async (req, res) => {
       else if (httpStatus.statusCode >= 200 && httpStatus.statusCode < 400 && contentAnalysis.verdict === 'VALID') overallStatus = 'ACTIVE';
       else overallStatus = 'ISSUES';
 
-      results.push({ domain, overallStatus, isGenuinelyValid:['ACTIVE','POLITICAL_CAMPAIGN'].includes(overallStatus), statusCode:httpStatus.statusCode, verdict:contentAnalysis.verdict, confidence:contentAnalysis.confidence, reasons:contentAnalysis.reasons, flags:contentAnalysis.flags, redirectInfo:contentAnalysis.redirectInfo, title:contentAnalysis.details.title, wordCount:contentAnalysis.details.wordCount, uniqueWordCount:contentAnalysis.details.uniqueWordCount });
       console.log(`  [OK] ${domain} -> ${overallStatus}`);
+      return { domain, overallStatus, isGenuinelyValid:['ACTIVE','POLITICAL_CAMPAIGN'].includes(overallStatus), statusCode:httpStatus.statusCode, verdict:contentAnalysis.verdict, confidence:contentAnalysis.confidence, reasons:contentAnalysis.reasons, flags:contentAnalysis.flags, redirectInfo:contentAnalysis.redirectInfo, title:contentAnalysis.details.title, wordCount:contentAnalysis.details.wordCount, uniqueWordCount:contentAnalysis.details.uniqueWordCount };
     } catch (err) {
-      results.push({ domain:normalizeDomain(rawDomain), overallStatus:'ERROR', isGenuinelyValid:false, error:err.message });
+      const domain = normalizeDomain(rawDomain);
+      console.log(`  [ERR] ${domain} -> ${err.message}`);
+      return { domain, overallStatus:'ERROR', isGenuinelyValid:false, error:err.message };
     }
   }
+
+  // Process in batches of 10 — parallel within each batch, sequential across batches
+  // 50 domains = 5 batches × ~4s each ≈ 20s total (vs 50 × 6s = 300s sequential)
+  const BATCH_SIZE = 10;
+  const results = [];
+  for (let i = 0; i < domains.length; i += BATCH_SIZE) {
+    const batch = domains.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(d => analyzeSingleDomain(d)));
+    results.push(...batchResults);
+    console.log(`  [BATCH] ${Math.min(i + BATCH_SIZE, domains.length)}/${domains.length} done`);
+  }
+
   res.json({ total:results.length, results });
 });
 
@@ -669,10 +749,12 @@ const CA_PROVINCES = ['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK
 const CA_POSTAL = /[A-Z]\d[A-Z]\s?\d[A-Z]\d/i;
 // Strict: province must appear after a comma or with postal code nearby
 function hasCanadianAddress(text) {
+  // Must have actual CA postal code (e.g. M5V 3A8) to confirm Canada
   if (CA_POSTAL.test(text)) return true;
-  // Look for "City, XX" pattern where XX is a province code
+  // Province code alone is NOT enough — "CA" appears in US addresses too
+  // Require province + postal code nearby (within 30 chars)
   for (const prov of CA_PROVINCES) {
-    const re = new RegExp(',\\s*' + prov + '\\b(?:\\s+[A-Z]\\d[A-Z])?', 'i');
+    const re = new RegExp(',\\s*' + prov + '\\b[\\s\\S]{0,20}[A-Z]\\d[A-Z]', 'i');
     if (re.test(text)) return true;
   }
   return false;
@@ -691,6 +773,26 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
 
   // Helper: is this an error page title?
   const isErrorTitle = (s) => /^(403|404|500|502|503|forbidden|not found|error|access denied|unavailable|page not found)/i.test(s?.trim());
+
+  // Helper: is this a known boilerplate/junk name that should never be used?
+  const isBoilerplateName = (s) => {
+    if (!s) return false;
+    const t = s.trim().toLowerCase();
+    return (
+      /^my wordpress blog$/i.test(t) ||
+      /^just another wordpress site$/i.test(t) ||
+      /^wordpress$/i.test(t) ||
+      /google\s+privacy\s+policy/i.test(t) ||
+      /terms\s+of\s+service/i.test(t) ||
+      /protected\s+by\s+recaptcha/i.test(t) ||
+      /this\s+site\s+is\s+protected/i.test(t) ||
+      /coming\s+soon/i.test(t) ||
+      /under\s+construction/i.test(t) ||
+      /(for sale|park model|for sale by owner|fsbo|listing)/i.test(t) ||  // property listings
+      /^(home|index|untitled|default|new page|page \d+)$/i.test(t) ||
+      /^(hello world|sample page|test page)$/i.test(t)
+    );
+  };
 
   // Helper: clean trailing/leading junk from a name
   const cleanName = (s) => s ? s.replace(/[•·|:–—\-]+$/, '').replace(/^[•·|:–—\-]+/, '').replace(/\s+/g, ' ').trim() : s;
@@ -713,7 +815,7 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
   };
 
   // Priority: Schema > Footer > OG site_name > cleaned title > domain
-  if (schemaName && schemaName.length > 2 && schemaName.length < 80 && isEnglish(schemaName) && !isErrorTitle(schemaName) && !isDomainAsName(schemaName, domain)) {
+  if (schemaName && schemaName.length > 2 && schemaName.length < 80 && isEnglish(schemaName) && !isErrorTitle(schemaName) && !isBoilerplateName(schemaName) && !isDomainAsName(schemaName, domain)) {
     // If schema name contains a dash separator, score each part and pick the best business name
     const dashParts = schemaName.split(/\s*[-–—]\s*/).map(p => p.trim()).filter(p => p.length > 1);
     if (dashParts.length >= 2) {
@@ -738,9 +840,9 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
     return cleanName(stripSubtitle(schemaName));
   }
   if (footerName && footerName.length > 2 && footerName.length < 80 && isEnglish(footerName)) return cleanName(footerName);
-  if (ogSiteName && ogSiteName.length > 2 && ogSiteName.length < 80 && isEnglish(ogSiteName) && !isErrorTitle(ogSiteName) && !isDomainAsName(ogSiteName, domain)) return cleanName(stripSubtitle(ogSiteName));
+  if (ogSiteName && ogSiteName.length > 2 && ogSiteName.length < 80 && isEnglish(ogSiteName) && !isErrorTitle(ogSiteName) && !isBoilerplateName(ogSiteName) && !isDomainAsName(ogSiteName, domain)) return cleanName(stripSubtitle(ogSiteName));
 
-  if (rawTitle && isEnglish(rawTitle) && !isErrorTitle(rawTitle)) {
+  if (rawTitle && isEnglish(rawTitle) && !isErrorTitle(rawTitle) && !isBoilerplateName(rawTitle)) {
     let name = rawTitle;
     // Remove common prefixes
     name = name.replace(/^(home|welcome to|welcome|about us?)\s*[-–—|:]\s*/i, '');
@@ -806,13 +908,22 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
     if (name.length > 2 && name.length < 100 && !isDomainAsName(name, domain)) return name;
   }
 
-  // Fallback: humanize domain name — split camelCase and hyphenated slugs
+  // Fallback: humanize domain name — split camelCase, hyphenated slugs, and number prefixes
   const base = domain.replace(/\.(com|net|org|info|biz|co|us|io|store|art|inc|godaddysites\.com)$/i, '');
   const words = base.split(/[-_.]/).filter(w => w.length > 0);
   const expanded = words.flatMap(w => {
-    if (/^\d+$/.test(w)) return [];
-    // Split camelCase: "ccplumbingservice" → stays as is (all lower), but "NasonMechanical" → "Nason Mechanical"
-    // Insert space before uppercase letters that follow lowercase
+    if (/^\d+$/.test(w)) return [w]; // Keep pure numbers as-is (e.g. "307")
+    // Handle leading number + letters: "14k" → "14K", "1foryou" → "1 For You"
+    const leadNumMatch = w.match(/^(\d+)([a-zA-Z].*)$/);
+    if (leadNumMatch) {
+      const num = leadNumMatch[1];
+      const rest = leadNumMatch[2];
+      // Split the alphabetic rest on camelCase and capitalize
+      const restSplit = rest.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
+      const restWords = restSplit.map(s => s.charAt(0).toUpperCase() + s.slice(1));
+      return [num, ...restWords];
+    }
+    // Split camelCase: "NasonMechanical" → ["Nason", "Mechanical"]
     const split = w.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
     return split.map(s => s.charAt(0).toUpperCase() + s.slice(1));
   });
@@ -820,7 +931,7 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
 }
 
 function extractSocialLinks(html) {
-  const socials = { facebook:null, twitter:null, instagram:null, linkedin:null, youtube:null, tiktok:null, pinterest:null, yelp:null };
+  const socials = { facebook:null, twitter:null, instagram:null, linkedin:null, youtube:null, tiktok:null, pinterest:null, yelp:null, whatsapp:null };
 
   const allLinks = html.match(/https?:\/\/[^\s"'<>]+/gi) || [];
 
@@ -874,9 +985,21 @@ function extractSocialLinks(html) {
     if (!socials.yelp && /yelp\.com\/biz\//i.test(cleanUrl)) {
       socials.yelp = cleanUrl;
     }
+
+    if (!socials.whatsapp && /wa\.me\/|whatsapp\.com\/send|api\.whatsapp\.com/i.test(url)) {
+      // Preserve full WhatsApp link including number
+      socials.whatsapp = url.split('"')[0].split("'")[0].replace(/[>\s].*/, '');
+    }
   }
 
-  return socials;
+  // Also check for whatsapp: protocol links
+  if (!socials.whatsapp) {
+    const waMatch = html.match(/href=["']((?:https?:\/\/)?(?:wa\.me|api\.whatsapp\.com|whatsapp\.com\/send)[^"'\s<>]+)["']/i);
+    if (waMatch) socials.whatsapp = waMatch[1];
+  }
+
+  // Strip null values — only return platforms that actually have links
+  return Object.fromEntries(Object.entries(socials).filter(([, v]) => v !== null));
 }
 
 function extractContactInfo(html, bodyText) {
@@ -1181,95 +1304,125 @@ async function getDomainAge(domain) {
   const result = { createdDate:null, updatedDate:null, expiresDate:null, ageInDays:null, ageText:null, registrar:null, error:null, attempts:[] };
   const tld = domain.split('.').pop().toLowerCase();
 
-  // Helper to try a single URL with full error capture
+  // ── TLD → RDAP endpoint map (direct registry, no intermediary) ──
+  // These are the authoritative RDAP servers per TLD from IANA bootstrap
+  const RDAP_ENDPOINTS = {
+    com:   'https://rdap.verisign.com/com/v1/domain/',
+    net:   'https://rdap.verisign.com/net/v1/domain/',
+    org:   'https://rdap.publicinterestregistry.org/rdap/domain/',
+    info:  'https://rdap.afilias.net/rdap/info/domain/',
+    biz:   'https://rdap.nic.biz/domain/',
+    io:    'https://rdap.nic.io/domain/',
+    co:    'https://rdap.nic.co/domain/',
+    ai:    'https://rdap.nic.ai/domain/',
+    app:   'https://rdap.nic.google/domain/',
+    dev:   'https://rdap.nic.google/domain/',
+    us:    'https://rdap.nic.us/domain/',
+    mobi:  'https://rdap.afilias.net/rdap/mobi/domain/',
+    store: 'https://rdap.nic.store/domain/',
+    online:'https://rdap.nic.online/domain/',
+    site:  'https://rdap.nic.site/domain/',
+  };
+
+  // Helper: try an RDAP endpoint
   async function tryRdap(name, url) {
     try {
       const r = await axios.get(url, {
-        timeout: 10000,
+        timeout: 8000,
         validateStatus: s => s === 200,
-        headers: { Accept: 'application/rdap+json, application/json' }
+        headers: { Accept: 'application/rdap+json, application/json', 'User-Agent': 'Mozilla/5.0 DomainChecker/1.0' }
       });
       if (r.data?.events?.length) {
         result.attempts.push({ source: name, status: 'ok' });
         return r.data;
       }
-      result.attempts.push({ source: name, status: 'no-events', keys: Object.keys(r.data||{}).join(',') });
+      result.attempts.push({ source: name, status: 'no-events', keys: Object.keys(r.data||{}).slice(0,5).join(',') });
     } catch(e) {
-      const msg = e.code || e.message || 'unknown';
-      result.attempts.push({ source: name, status: 'fail', error: msg.substring(0,100) });
+      result.attempts.push({ source: name, status: 'fail', error: (e.code || e.message || 'unknown').substring(0,80) });
     }
     return null;
   }
 
-  // ── ATTEMPT 1: Verisign RDAP — most reliable for .com/.net, standard HTTPS 443 ──
-  const tldRdap = tld === 'net'
-    ? `https://rdap.verisign.com/net/v1/domain/${domain}`
-    : `https://rdap.verisign.com/com/v1/domain/${domain}`;
-  const verisign = await tryRdap('verisign', tldRdap);
-  if (verisign) { parseRdapData(verisign, result); }
-  if (result.createdDate) return result;
-
-  // ── ATTEMPT 2: IANA bootstrap RDAP — delegates to correct registry ──
-  const iana = await tryRdap('iana', `https://rdap.iana.org/domain/${domain}`);
-  if (iana) { parseRdapData(iana, result); }
-  if (result.createdDate) return result;
-
-  // ── ATTEMPT 3: rdap.org universal proxy ──
-  const rdapOrg = await tryRdap('rdap.org', `https://rdap.org/domain/${domain}`);
-  if (rdapOrg) { parseRdapData(rdapOrg, result); }
-  if (result.createdDate) return result;
-
-  // ── ATTEMPT 4: whoisjson.com ──
-  try {
-    const r = await axios.get(`https://whoisjson.com/api/v1/whois?domain=${domain}`, {
-      timeout: 10000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
-    });
-    const d = r.data;
-    const raw = d?.created_date || d?.creation_date || d?.registered || d?.creationDate;
-    if (raw && calcDomainAge(result, Array.isArray(raw) ? raw[0] : raw)) {
-      result.registrar = result.registrar || (typeof d?.registrar === 'string' ? d.registrar : d?.registrar?.name) || null;
-      result.expiresDate = result.expiresDate || d?.expiry_date || d?.expiration_date || null;
-      result.attempts.push({ source: 'whoisjson', status: 'ok' });
-      return result;
+  // Helper: try a WHOIS JSON API
+  async function tryWhois(name, url, extract) {
+    try {
+      const r = await axios.get(url, {
+        timeout: 8000,
+        validateStatus: s => s === 200,
+        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 DomainChecker/1.0' }
+      });
+      const raw = extract(r.data);
+      const dateStr = Array.isArray(raw) ? raw[0] : raw;
+      if (dateStr && calcDomainAge(result, dateStr)) {
+        result.registrar = result.registrar || extractRegistrar(r.data) || null;
+        result.attempts.push({ source: name, status: 'ok' });
+        return true;
+      }
+      result.attempts.push({ source: name, status: 'no-date', sample: JSON.stringify(r.data).substring(0,120) });
+    } catch(e) {
+      result.attempts.push({ source: name, status: 'fail', error: (e.code || e.message || 'unknown').substring(0,80) });
     }
-    result.attempts.push({ source: 'whoisjson', status: 'no-date', sample: JSON.stringify(d).substring(0,150) });
-  } catch(e) {
-    result.attempts.push({ source: 'whoisjson', status: 'fail', error: (e.code||e.message||'').substring(0,100) });
+    return false;
   }
 
-  // ── ATTEMPT 5: who-dat.as93.net ──
-  try {
-    const r = await axios.get(`https://who-dat.as93.net/${domain}`, {
-      timeout: 10000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
-    });
-    const d = r.data?.domain || r.data;
-    const raw = Array.isArray(d?.created_date) ? d.created_date[0] : (d?.created_date || d?.creation_date);
-    if (raw && calcDomainAge(result, raw)) {
-      result.registrar = result.registrar || r.data?.registrar?.name || null;
-      result.attempts.push({ source: 'who-dat', status: 'ok' });
-      return result;
-    }
-    result.attempts.push({ source: 'who-dat', status: 'no-date', sample: JSON.stringify(d||{}).substring(0,150) });
-  } catch(e) {
-    result.attempts.push({ source: 'who-dat', status: 'fail', error: (e.code||e.message||'').substring(0,100) });
+  function extractRegistrar(d) {
+    if (!d) return null;
+    if (typeof d?.registrar === 'string') return d.registrar;
+    if (d?.registrar?.name) return d.registrar.name;
+    if (d?.WhoisRecord?.registrarName) return d.WhoisRecord.registrarName;
+    if (d?.registrar_name) return d.registrar_name;
+    return null;
   }
 
-  // ── ATTEMPT 6: domainsdb.info ──
+  // ── ATTEMPT 1: Direct TLD registry RDAP (most reliable, authoritative) ──
+  const directEndpoint = RDAP_ENDPOINTS[tld];
+  if (directEndpoint) {
+    const data = await tryRdap(`rdap-${tld}`, `${directEndpoint}${domain}`);
+    if (data) parseRdapData(data, result);
+    if (result.createdDate) return result;
+  }
+
+  // ── ATTEMPT 2: RDAP.cloud — community proxy, works from datacenter IPs ──
+  const rdapCloud = await tryRdap('rdap.cloud', `https://rdap.cloud/domain/${domain}`);
+  if (rdapCloud) parseRdapData(rdapCloud, result);
+  if (result.createdDate) return result;
+
+  // ── ATTEMPT 3: rdap.net — open community RDAP proxy ──
+  const rdapNet = await tryRdap('rdap.net', `https://rdap.net/domain/${domain}`);
+  if (rdapNet) parseRdapData(rdapNet, result);
+  if (result.createdDate) return result;
+
+  // ── ATTEMPT 4: shreshtait.com — truly unlimited, no auth, no daily cap ──
+  // Community WHOIS API: https://domaininfo.shreshtait.com/api/search/{domain}
+  // Returns: { creation_date, domain_name, registrar } — clean and simple
+  const shreshtait = await tryWhois('shreshtait', `https://domaininfo.shreshtait.com/api/search/${domain}`, d =>
+    d?.creation_date
+  );
+  if (shreshtait) return result;
+
+  // ── ATTEMPT 5: who-dat.as93.net — open source, no auth, no stated limit ──
+  const whoDat = await tryWhois('who-dat', `https://who-dat.as93.net/${domain}`, d => {
+    const inner = d?.domain || d;
+    return inner?.created_date || inner?.creation_date;
+  });
+  if (whoDat) return result;
+
+  // ── ATTEMPT 6: domainsdb.info — last resort ──
   try {
     const r = await axios.get(`https://api.domainsdb.info/v1/domains/search?domain=${domain}&zone=${tld}`, {
-      timeout: 10000, validateStatus: s => s === 200, headers: { Accept: 'application/json' }
+      timeout: 8000, validateStatus: s => s === 200, headers: { 'User-Agent': 'Mozilla/5.0 DomainChecker/1.0' }
     });
     const match = (r.data?.domains||[]).find(d => d.domain?.toLowerCase() === domain.toLowerCase());
     if (match?.create_date && calcDomainAge(result, match.create_date)) {
       result.attempts.push({ source: 'domainsdb', status: 'ok' });
       return result;
     }
-    result.attempts.push({ source: 'domainsdb', status: 'no-match' });
+    result.attempts.push({ source: 'domainsdb', status: 'no-match', total: r.data?.domains?.length || 0 });
   } catch(e) {
-    result.attempts.push({ source: 'domainsdb', status: 'fail', error: (e.code||e.message||'').substring(0,100) });
+    result.attempts.push({ source: 'domainsdb', status: 'fail', error: (e.code||e.message||'').substring(0,80) });
   }
 
-  result.error = 'All domain age lookups failed — check /api/debug-domain-age?domain=' + domain;
+  result.error = `All ${result.attempts.length} domain age lookups failed — diagnose at /api/debug-domain-age?domain=${domain}`;
   return result;
 }
 
@@ -1425,13 +1578,23 @@ async function extractBusinessInfo(html, domain) {
     const parsed = parseUSAddress(rawMatch);
 
     // Sanitize street: strip business name suffixes that bleed AFTER the street address
-    // Only strip if suffix appears MORE than 3 words after start (not the street type itself)
     if (parsed.street) {
       parsed.street = parsed.street
         .replace(/\s{2,}/g, ' ')
-        // Must have at least 3 words before the suffix to avoid stripping "Rd" in "N. Opdyke Rd"
         .replace(/^((?:\S+\s+){4,})(?:LLC|Inc\.?|Corp\.?|Co\.?|Ltd\.?|Company|Services?|Repair|Plumbing|Mechanical)\b.*/i, '$1')
         .trim();
+    }
+
+    // Reject street if it looks like body text, not an address:
+    // Real streets: "1010 S Park Loop Road", "194 Merrow Road", "1801 N. Opdyke Rd."
+    // Body text: "21 years of service with the United", "10 reasons why our..."
+    // Guard: after the number, if 3rd+ token is a common English article/preposition → reject
+    if (parsed.street) {
+      const streetWords = parsed.street.split(/\s+/);
+      const nonAddrWords = /^(of|with|the|for|and|or|but|why|how|when|what|that|this|to|in|on|at|by|from|years|days|months|reasons|ways|steps|things|tips|over|under|more|less|than|our|your|we|us|my|their|its|has|have|was|were|is|are|been|will|can|not|no|new|old|about|after|before|since|until|while|where|which)$/i;
+      if (streetWords.length >= 3 && nonAddrWords.test(streetWords[2])) {
+        parsed.street = '';
+      }
     }
 
     const validStates = new Set([
@@ -1611,7 +1774,7 @@ app.post('/api/extract-business', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.5-nocache', cache:CACHE.size }));
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.6', cache:CACHE.size }));
 
 // Clear all cached results — call this after deploying fixes so stale data is gone immediately
 app.post('/api/cache-clear', (req, res) => {
@@ -1623,12 +1786,35 @@ app.post('/api/cache-clear', (req, res) => {
 
 // === DOMAIN AGE DEBUG ENDPOINT ===
 // Hit: GET /api/debug-domain-age?domain=ccplumbingservice.com
-// Returns every attempt with its status/error so you can see exactly what Render can reach
+// Shows every attempt, what worked, what failed, and why
 app.get('/api/debug-domain-age', async (req, res) => {
   const domain = normalizeDomain(req.query.domain || 'ccplumbingservice.com');
   console.log(`[DEBUG-AGE] ${domain}`);
   const result = await getDomainAge(domain);
-  res.json({ domain, ...result });
+
+  const passed  = result.attempts.filter(a => a.status === 'ok');
+  const failed  = result.attempts.filter(a => a.status === 'fail');
+  const noData  = result.attempts.filter(a => a.status !== 'ok' && a.status !== 'fail');
+
+  res.json({
+    domain,
+    success: !!result.createdDate,
+    createdDate:  result.createdDate,
+    ageText:      result.ageText,
+    registrar:    result.registrar,
+    expiresDate:  result.expiresDate,
+    summary: {
+      totalAttempts: result.attempts.length,
+      passed:  passed.map(a => a.source),
+      failed:  failed.map(a => `${a.source} (${a.error})`),
+      noData:  noData.map(a => `${a.source} (${a.status}: ${a.sample||a.keys||''})`),
+    },
+    attempts: result.attempts,
+    error: result.error || null,
+    tip: result.createdDate
+      ? 'Domain age successfully retrieved ✅'
+      : 'All services failed. If errors are EAI_AGAIN or ECONNREFUSED, Render is blocking outbound DNS/HTTPS to these hosts. All 6 services in the chain are unlimited and require no API key.',
+  });
 });
 
 app.listen(PORT, () => {
