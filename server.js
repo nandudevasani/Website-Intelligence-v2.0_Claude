@@ -1473,28 +1473,41 @@ function parseUSAddress(rawAddress) {
    const contact = extractContactInfo(html, bodyText);
  
    // Strong fallback: detect business name from contact block
-   // Also trigger when name looks like a domain slug (no spaces = camelCase/concatenated)
-   const nameIsSlug = businessName && !businessName.includes(' ') && businessName.length > 6;
-   if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug) {
-     // Scan all matches, pick the shortest clean one (avoids grabbing repeated carousel text)
-     const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Repair|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners)(?:[ \t]+LLC|\.?)?)/g;
-     let nameCandidate = null, shortestLen = 999;
-     let nm;
-     while ((nm = nameRegex.exec(bodyText)) !== null) {
-       const candidate = nm[0].trim().replace(/\s+/g, ' ');
-       // Skip if it contains obvious repetition (same word appears 3+ times)
-       const words = candidate.toLowerCase().split(/\s+/);
-       const wordCounts = {};
-       words.forEach(w => { wordCounts[w] = (wordCounts[w]||0)+1; });
-       const maxRepeat = Math.max(...Object.values(wordCounts));
-       if (maxRepeat >= 3) continue;
-       if (candidate.length > 5 && candidate.length < 80 && candidate.length < shortestLen) {
+// Also trigger when name looks like a domain slug (no spaces = camelCase/concatenated)
+const nameIsSlug = businessName && !businessName.includes(' ') && businessName.length > 6;
 
-       };
-     } else if (schema.address.raw) {
-       address = parseUSAddress(schema.address.raw);
-     }
-   }
+if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug) {
+
+  // Scan all matches, pick the shortest clean one (avoids grabbing repeated carousel text)
+  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Repair|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners)(?:[ \t]+LLC|\.?)?)/g;
+
+  let nameCandidate = null;
+  let shortestLen = 999;
+  let nm;
+
+  while ((nm = nameRegex.exec(bodyText)) !== null) {
+    const candidate = nm[0].trim().replace(/\s+/g, ' ');
+
+    // Skip if it contains obvious repetition (same word appears 3+ times)
+    const words = candidate.toLowerCase().split(/\s+/);
+    const wordCounts = {};
+    words.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
+    const maxRepeat = Math.max(...Object.values(wordCounts));
+
+    if (maxRepeat >= 3) continue;
+
+    if (candidate.length > 5 && candidate.length < 80 && candidate.length < shortestLen) {
+      nameCandidate = candidate;
+      shortestLen = candidate.length;
+    }
+  }
+
+  if (nameCandidate) {
+    businessName = nameCandidate;
+  } else if (schema.address?.raw) {
+    address = parseUSAddress(schema.address.raw);
+  }
+}
  
    // If still no street found, scan body for "City, ST ZIP" pattern
    if (!address.street) {
