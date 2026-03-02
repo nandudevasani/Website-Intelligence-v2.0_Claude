@@ -309,7 +309,7 @@
 (function() {
 
   // ---- CONFIG ----
-  var API = "https://website-intelligence-backend-1.onrender.com";
+  var API = ""; // Same origin — backend serves both API and frontend
   var MAX_DOMAINS = 50;
   var BATCH_SIZE = 2; // 2 domains per batch for multi-page crawl timeout safety
 
@@ -662,7 +662,7 @@
 
     // Health check first, then start scanning
     var health = new XMLHttpRequest();
-    health.open("GET", API + "/");
+    health.open("GET", API + "/health");
     health.timeout = 90000;
 
     health.onload = function() {
