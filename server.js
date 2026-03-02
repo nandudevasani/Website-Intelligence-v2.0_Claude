@@ -35,11 +35,7 @@ function decodeHTML(str) {
     .replace(/\s+/g, ' ').trim();
 }
 
-// In-Memory Cache (1-hour TTL)
-const CACHE = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes — short TTL so fixes apply quickly
-function cacheGet(key) { const e = CACHE.get(key); if (!e) return null; if (Date.now() > e.expires) { CACHE.delete(key); return null; } return e.data; }
-function cacheSet(key, data) { CACHE.set(key, { data, expires: Date.now() + CACHE_TTL }); if (CACHE.size > 500) { const oldest = CACHE.keys().next().value; CACHE.delete(oldest); } }
+ cacheSet(key, data) { CACHE.set(key, { data, expires: Date.now() + CACHE_TTL }); if (CACHE.size > 500) { const oldest = CACHE.keys().next().value; CACHE.delete(oldest); } }
 
 function normalizeDomain(input) {
   let d = input.trim().toLowerCase();
@@ -682,10 +678,6 @@ app.post('/api/analyze', async (req, res) => {
 
   const domain = normalizeDomain(rawDomain);
 
-  // Check cache first
-  const cached = cacheGet('analyze:' + domain);
-  if (cached) { console.log(`  [CACHE HIT] ${domain}`); return res.json(cached); }
-
   const timestamp = new Date().toISOString();
   console.log(`\n[SCAN] ${domain}`);
 
@@ -711,7 +703,6 @@ app.post('/api/analyze', async (req, res) => {
     const genuinelyValid = ['ACTIVE','POLITICAL_CAMPAIGN'].includes(overallStatus);
     console.log(`  -> ${overallStatus} | Words:${contentAnalysis.details.wordCount} Unique:${contentAnalysis.details.uniqueWordCount} | Valid:${genuinelyValid}`);
     const result = { domain, timestamp, overallStatus, statusColor, isGenuinelyValid:genuinelyValid, dns:dnsResults, ssl:sslResults, http:httpStatus, content:contentAnalysis };
-    cacheSet('analyze:' + domain, result);
     res.json(result);
   } catch (err) {
     console.error(`  -> ERROR: ${err.message}`);
@@ -2135,15 +2126,7 @@ app.post('/api/extract-business', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.7', cache:CACHE.size }));
-
-// Clear all cached results — call this after deploying fixes so stale data is gone immediately
-app.post('/api/cache-clear', (req, res) => {
-  const size = CACHE.size;
-  CACHE.clear();
-  console.log(`[CACHE] Cleared ${size} entries`);
-  res.json({ cleared: size, message: 'Cache cleared. Next requests will re-fetch fresh data.' });
-});
+app.get('/api/health', (req, res) => res.json({ status:'ok', uptime:process.uptime(), version:'3.7' }));
 
 // === DOMAIN AGE DEBUG ENDPOINT ===
 // Hit: GET /api/debug-domain-age?domain=ccplumbingservice.com
