@@ -1260,18 +1260,18 @@ function parseUSAddress(rawAddress) {
    const tld = domain.split('.').pop().toLowerCase();
  
    // ── TLD → RDAP endpoint map (direct registry, no intermediary) ──
-   // These are the authoritative RDAP servers per TLD from IANA bootstrap
-   const RDAP_ENDPOINTS = {
-     com:   'https://rdap.verisign.com/com/v1/domain/',
-     net:   'https://rdap.verisign.com/net/v1/domain/',
-     org:   'https://rdap.publicinterestregistry.org/rdap/domain/',
-     info:  'https://rdap.afilias.net/rdap/info/domain/',
-     biz:   'https://rdap.nic.biz/domain/',
-     io:    'https://rdap.nic.io/domain/',
-     co:    'https://rdap.nic.co/domain/',
-     ai:    'https://rdap.nic.ai/domain/',
-     app:   'https://rdap.nic.google/domain/',
-
+  // These are the authoritative RDAP servers per TLD from IANA bootstrap
+    const RDAP_ENDPOINTS = {
+      com:  'https://rdap.verisign.com/com/v1/domain/',
+      net:  'https://rdap.verisign.com/net/v1/domain/',
+      org:  'https://rdap.publicinterestregistry.org/rdap/domain/',
+      info: 'https://rdap.afilias.net/rdap/info/domain/',
+      biz:  'https://rdap.nic.biz/domain/',
+      io:   'https://rdap.nic.io/domain/',
+      co:   'https://rdap.nic.co/domain/',
+      ai:   'https://rdap.nic.ai/domain/',
+      app:  'https://rdap.nic.google/domain/'
+    };
        const r = await axios.get(url, {
          timeout: 8000,
          validateStatus: s => s === 200,
