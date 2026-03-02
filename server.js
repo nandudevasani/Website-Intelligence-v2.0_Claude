@@ -1152,7 +1152,7 @@ function parseUSAddress(rawAddress) {
     const hasStateZip = /[A-Z]{2}\s*\d{5}/.test(part2) || /^\s*[A-Z]{2}\s*$/.test(part2);
     const hasStreetWords = /\b(street|st|avenue|ave|boulevard|blvd|drive|dr|road|rd|lane|ln|way|court|ct|place|pl|suite|ste|unit|#)\b/i.test(parts[0]);
 
-    
+   
      if (hasStreetWords) {
        // "123 Main St, City ST 12345"
        result.street = parts[0];
@@ -1178,17 +1178,17 @@ function parseUSAddress(rawAddress) {
      }
    }
  
-+  // If street accidentally captured only city/state text, demote it
-+  if (result.street) {
-+    const cityStateOnly = result.street.match(/^([A-Za-z][A-Za-z\s.'-]{1,40}),?\s+([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i);
-+    if (cityStateOnly && !/\d+\s+\w+/.test(result.street)) {
-+      if (!result.city) result.city = cityStateOnly[1].trim();
-+      if (!result.state) result.state = cityStateOnly[2].toUpperCase();
-+      if (!result.zip && cityStateOnly[3]) result.zip = cityStateOnly[3];
-+      result.street = '';
-+    }
-+  }
-+
+  // If street accidentally captured only city/state text, demote it
+  if (result.street) {
+    const cityStateOnly = result.street.match(/^([A-Za-z][A-Za-z\s.'-]{1,40}),?\s+([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i);
+    if (cityStateOnly && !/\d+\s+\w+/.test(result.street)) {
+      if (!result.city) result.city = cityStateOnly[1].trim();
+      if (!result.state) result.state = cityStateOnly[2].toUpperCase();
+      if (!result.zip && cityStateOnly[3]) result.zip = cityStateOnly[3];
+      result.street = '';
+    }
+  }
+
    // Clean up city - remove any trailing state/zip
    result.city = result.city.replace(/\s+[A-Z]{2}\s*\d{5}.*$/, '').replace(/\s+[A-Z]{2}\s*$/, '').trim();
  
@@ -1214,7 +1214,6 @@ function parseUSAddress(rawAddress) {
      }
    }
  
-@@ -1269,50 +1280,57 @@ function extractOGMeta(html) {
  // === DOMAIN AGE VIA RDAP / WHOIS ===
  
  // Shared age calculator
@@ -1240,13 +1239,13 @@ function parseUSAddress(rawAddress) {
      else if (action.includes('expir'))   result.expiresDate  = ev.eventDate;
      else if (action.includes('last') || action.includes('updat') || action.includes('chang')) result.updatedDate = ev.eventDate;
    }
-+
-+  // Some RDAP providers return creation date as top-level fields instead of events
-+  if (!result.createdDate) {
-+    const directCreated = data?.creationDate || data?.createdDate || data?.registrationDate;
-+    if (directCreated) calcDomainAge(result, directCreated);
-+  }
-+
+
+  // Some RDAP providers return creation date as top-level fields instead of events
+  if (!result.createdDate) {
+    const directCreated = data?.creationDate || data?.createdDate || data?.registrationDate;
+    if (directCreated) calcDomainAge(result, directCreated);
+  }
+
    for (const entity of (data.entities || [])) {
      if (!result.registrar && entity.roles?.includes('registrar') && entity.vcardArray) {
        for (const field of (entity.vcardArray[1] || [])) {
@@ -1272,7 +1271,7 @@ function parseUSAddress(rawAddress) {
      co:    'https://rdap.nic.co/domain/',
      ai:    'https://rdap.nic.ai/domain/',
      app:   'https://rdap.nic.google/domain/',
-@@ -1330,102 +1348,115 @@ async function getDomainAge(domain) {
+
        const r = await axios.get(url, {
          timeout: 8000,
          validateStatus: s => s === 200,
@@ -1298,21 +1297,20 @@ function parseUSAddress(rawAddress) {
          headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 DomainChecker/1.0' }
        });
        const raw = extract(r.data);
--      const dateStr = Array.isArray(raw) ? raw[0] : raw;
-+      const firstDate = (value) => {
-+        if (!value) return null;
-+        if (Array.isArray(value)) {
-+          for (const v of value) {
-+            const d = firstDate(v);
-+            if (d) return d;
-+          }
-+          return null;
-+        }
-+        if (typeof value === 'string') return value;
-+        if (typeof value === 'object') return value.date || value.value || value.timestamp || value.created || null;
-+        return null;
-+      };
-+      const dateStr = firstDate(raw);
+      const firstDate = (value) => {
+        if (!value) return null;
+        if (Array.isArray(value)) {
+          for (const v of value) {
+            const d = firstDate(v);
+            if (d) return d;
+          }
+          return null;
+        }
+        if (typeof value === 'string') return value;
+        if (typeof value === 'object') return value.date || value.value || value.timestamp || value.created || null;
+        return null;
+      };
+      const dateStr = firstDate(raw);
        if (dateStr && calcDomainAge(result, dateStr)) {
          result.registrar = result.registrar || extractRegistrar(r.data) || null;
          result.attempts.push({ source: name, status: 'ok' });
@@ -1363,8 +1361,7 @@ function parseUSAddress(rawAddress) {
    // ── ATTEMPT 5: who-dat.as93.net — open source, no auth, no stated limit ──
    const whoDat = await tryWhois('who-dat', `https://who-dat.as93.net/${domain}`, d => {
      const inner = d?.domain || d;
--    return inner?.created_date || inner?.creation_date;
-+    return inner?.created_date || inner?.creation_date || inner?.createdDate || inner?.creationDate || inner?.registered;
+    return inner?.created_date || inner?.creation_date || inner?.createdDate || inner?.creationDate || inner?.registered;
    });
    if (whoDat) return result;
  
@@ -1390,7 +1387,7 @@ function parseUSAddress(rawAddress) {
  async function extractBusinessInfo(html, domain) {
    const bodyText = html
      .replace(/<script[\s\S]*?<\/script>/gi, '')
-@@ -1450,52 +1481,73 @@ async function extractBusinessInfo(html, domain) {
+
    const cleanOGSiteName = og.siteName ? decodeHTML(og.siteName) : null;
  
    // 5. Footer/Copyright extraction for business name
@@ -1416,29 +1413,29 @@ function parseUSAddress(rawAddress) {
      }
    }
  
-+  // Extra signal: first H1 often contains the actual business name
-+  const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-+  const cleanH1 = h1Match ? decodeHTML(h1Match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()) : null;
-+
+  // Extra signal: first H1 often contains the actual business name
+  const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  const cleanH1 = h1Match ? decodeHTML(h1Match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()) : null;
+
    // 6. Business name (cleaned) — now includes footer as a source
    let businessName = cleanBusinessName(rawTitle, cleanOGSiteName, cleanSchemaName, domain, footerName);
-+
-+  const looksLikeWeakName = (n) => {
-+    if (!n) return true;
-+    const t = n.trim();
-+    return (
-+      t.length < 4 ||
-+      /^home$/i.test(t) ||
-+      /^(welcome|contact|about|services?)$/i.test(t) ||
-+      /\.(com|net|org|info|biz)$/i.test(t) ||
-+      t.toLowerCase() === domain.toLowerCase()
-+    );
-+  };
-+
-+  if (looksLikeWeakName(businessName) && cleanH1 && cleanH1.length > 2 && cleanH1.length < 90) {
-+    businessName = cleanH1;
-+  }
-+
+
+  const looksLikeWeakName = (n) => {
+    if (!n) return true;
+    const t = n.trim();
+    return (
+      t.length < 4 ||
+      /^home$/i.test(t) ||
+      /^(welcome|contact|about|services?)$/i.test(t) ||
+      /\.(com|net|org|info|biz)$/i.test(t) ||
+      t.toLowerCase() === domain.toLowerCase()
+    );
+  };
+
+  if (looksLikeWeakName(businessName) && cleanH1 && cleanH1.length > 2 && cleanH1.length < 90) {
+    businessName = cleanH1;
+  }
+
    // Fallback: if cleanBusinessName returned nothing, use the domain
    if (!businessName || businessName.trim().length === 0) {
      businessName = domain;
@@ -1464,7 +1461,7 @@ function parseUSAddress(rawAddress) {
        const maxRepeat = Math.max(...Object.values(wordCounts));
        if (maxRepeat >= 3) continue;
        if (candidate.length > 5 && candidate.length < 80 && candidate.length < shortestLen) {
-@@ -1534,61 +1586,75 @@ async function extractBusinessInfo(html, domain) {
+
        };
      } else if (schema.address.raw) {
        address = parseUSAddress(schema.address.raw);
@@ -1490,8 +1487,7 @@ function parseUSAddress(rawAddress) {
      }
      // Also handle full state name: "Auburn, Maine 04210"
      if (!address.city) {
--      const fullStateMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})/m);
-+      const fullStateMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})\b/m);
+      const fullStateMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(\d{5})\b/m);
        if (fullStateMatch) {
          const stateNameRaw = fullStateMatch[2].trim();
          const stateCode = Object.entries(US_STATES).find(([,name]) => name.toLowerCase() === stateNameRaw.toLowerCase())?.[0];
@@ -1502,20 +1498,20 @@ function parseUSAddress(rawAddress) {
          }
        }
      }
-+
-+    // Handle city/state without ZIP: "Austin, TX"
-+    if (!address.city) {
-+      const cityStateOnlyMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z]{2})\b/m);
-+      if (cityStateOnlyMatch) {
-+        const candidateCity = cityStateOnlyMatch[1].trim();
-+        const candidateState = cityStateOnlyMatch[2];
-+        const notACity = /LLC|Inc|Corp|Repair|Service|Plumbing|Mechanical|Management|Company|the|and|for|your|this|terms|privacy|rights|contact|email|phone/i;
-+        if (!notACity.test(candidateCity) && candidateCity.length >= 3 && candidateCity.length <= 40) {
-+          address.city = candidateCity;
-+          address.state = candidateState;
-+        }
-+      }
-+    }
+
+    // Handle city/state without ZIP: "Austin, TX"
+    if (!address.city) {
+      const cityStateOnlyMatch = bodyText.match(/(?:^|[\n\r,.|]\s*)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}),\s*([A-Z]{2})\b/m);
+      if (cityStateOnlyMatch) {
+        const candidateCity = cityStateOnlyMatch[1].trim();
+        const candidateState = cityStateOnlyMatch[2];
+        const notACity = /LLC|Inc|Corp|Repair|Service|Plumbing|Mechanical|Management|Company|the|and|for|your|this|terms|privacy|rights|contact|email|phone/i;
+        if (!notACity.test(candidateCity) && candidateCity.length >= 3 && candidateCity.length <= 40) {
+          address.city = candidateCity;
+          address.state = candidateState;
+        }
+      }
+    }
    }
  
    // --- Street address extraction: strict regex to prevent bleed into business name ---
