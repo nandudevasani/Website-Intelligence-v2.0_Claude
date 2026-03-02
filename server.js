@@ -1167,8 +1167,37 @@ function parseUSAddress(rawAddress) {
     .replace(/[\[\]{}<>]/g, ' ')
     .replace(/[|]/g, ', ')
     .replace(/\s+/g, ' ')
+    .replace(/,+/g, ',')
+    .replace(/^\s*,|,\s*$/g, ''
     .trim();
+  
+ const cleanToken = (v = '') => String(v).replace(/^\s*,|,\s*$/g, '').replace(/\s+/g, ' ').trim();
+  const stripTrailingCityFromStreet = (street, city) => {
+    const s = cleanToken(street);
+    const c = cleanToken(city);
+    if (!s || !c) return s;
+    const escapedCity = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return s.replace(new RegExp(`(?:,?\\s+)${escapedCity}$`, 'i'), '').replace(/,\s*$/, '').trim();
+  };
 
+  // Strict full-address format: STREET, CITY, STATE ZIP
+  const strictComma = addr.match(/^\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/);
+  if (strictComma) {
+    result.street = cleanToken(strictComma[1]);
+    result.city = cleanToken(strictComma[2]);
+    result.state = strictComma[3].toUpperCase();
+    result.zip = strictComma[4];
+
+    // City must never be numeric ZIP data
+    if (/^\d{5}$/.test(result.city)) {
+      result.zip = result.zip || result.city;
+      result.city = '';
+    }
+
+    result.street = stripTrailingCityFromStreet(result.street, result.city);
+    return result;
+  }
+  
   // Extract ZIP code (US 5-digit or 5+4)
   const zipMatch = addr.match(/\b(\d{5}(?:-\d{4})?)\b/);
   if (zipMatch) result.zip = zipMatch[1];
@@ -1261,7 +1290,21 @@ function parseUSAddress(rawAddress) {
        result.state = csMatch[2].toUpperCase();
        if (csMatch[3]) result.zip = csMatch[3];
      }
-   }
+  // Fallback no-comma format: "Street City ST ZIP"
+     const noCommaCityStateZip = addr.match(/(.*)\s([A-Za-z\s]+)\s([A-Z]{2})\s(\d{5})$/);
+     if (noCommaCityStateZip) {
+       const fallbackStreet = cleanToken(noCommaCityStateZip[1]);
+       const fallbackCity = cleanToken(noCommaCityStateZip[2]);
+       const fallbackState = noCommaCityStateZip[3].toUpperCase();
+       const fallbackZip = noCommaCityStateZip[4];
+       if (fallbackCity && /^[A-Za-z][A-Za-z\s.'-]*$/.test(fallbackCity) && fallbackCity !== fallbackState) {
+         if (!result.street) result.street = fallbackStreet;
+         if (!result.city) result.city = fallbackCity;
+         if (!result.state) result.state = fallbackState;
+         if (!result.zip) result.zip = fallbackZip;
+       }
+     } 
+  }
  
   // If street accidentally captured only city/state text, demote it
   if (result.street) {
@@ -1284,8 +1327,23 @@ function parseUSAddress(rawAddress) {
       .trim();
   }
   
-   // Clean up city - remove any trailing state/zip
-   result.city = result.city.replace(/\s+[A-Z]{2}\s*\d{5}.*$/, '').replace(/\s+[A-Z]{2}\s*$/, '').trim();
+   // Clean up city - remove any trailing state/zip and block ZIP in city
+   result.city = cleanToken(result.city).replace(/\s+[A-Z]{2}\s*\d{5}.*$/, '').replace(/\s+[A-Z]{2}\s*$/, '').trim();
+   if (/^\d{5}$/.test(result.city)) {
+     if (!result.zip) result.zip = result.city;
+     result.city = '';
+   }
+
+   // Keep ZIP as 5 digits only and avoid ZIP duplication into city
+   if (result.zip) {
+     const zip5 = String(result.zip).match(/\b(\d{5})\b/);
+     result.zip = zip5 ? zip5[1] : '';
+     if (result.zip && result.city === result.zip) result.city = '';
+   }
+
+   result.street = stripTrailingCityFromStreet(result.street, result.city);
+   result.street = cleanToken(result.street);
+   result.city = cleanToken(result.city);
  
    return result;
  }
@@ -1415,9 +1473,10 @@ function parseUSAddress(rawAddress) {
    result.ageInDays = Math.floor((Date.now() - created) / 86400000);
    const years  = Math.floor(result.ageInDays / 365);
    const months = Math.floor((result.ageInDays % 365) / 30);
-   if (years > 0)       result.ageText = years  + ' yr'    + (years  !== 1 ? 's' : '') + (months > 0 ? ' ' + months + ' mo' : '');
-   else if (months > 0) result.ageText = months + ' month' + (months !== 1 ? 's' : '');
-   else                 result.ageText = result.ageInDays + ' day' + (result.ageInDays !== 1 ? 's' : '');
+   if (years > 0 && months > 0) result.ageText = `${years}Y ${months}M`;
+   else if (years > 0)          result.ageText = `${years}Y`;
+   else if (months > 0)         result.ageText = `${months}M`;
+   else                         result.ageText = '0M';
    return true;
  }
  
