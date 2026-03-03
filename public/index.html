@@ -1,902 +1,459 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Website Intelligence Scanner v2</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
-  :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface-hover: #222633;
-    --border: #2a2e3b;
-    --text: #e4e6ed;
-    --text-muted: #8b8fa3;
-    --accent: #4f8ff7;
-    --accent-glow: rgba(79, 143, 247, 0.15);
-    --green: #34d399;
-    --green-bg: rgba(52, 211, 153, 0.1);
-    --red: #f87171;
-    --red-bg: rgba(248, 113, 113, 0.1);
-    --yellow: #fbbf24;
-    --yellow-bg: rgba(251, 191, 36, 0.1);
-    --orange: #fb923c;
-    --orange-bg: rgba(251, 146, 60, 0.1);
-    --gray: #6b7280;
-    --gray-bg: rgba(107, 114, 128, 0.1);
-    --purple: #a78bfa;
-    --purple-bg: rgba(167, 139, 250, 0.1);
-    --cyan: #22d3ee;
-    --cyan-bg: rgba(34, 211, 238, 0.1);
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    font-family: 'DM Sans', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    padding: 1.5rem;
-  }
-
-  .container { max-width: 1600px; margin: 0 auto; }
-
-  header { margin-bottom: 1.5rem; }
-  header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.15rem; }
-  header h1 span { color: var(--accent); }
-  header p { color: var(--text-muted); font-size: 0.85rem; }
-
-  .input-section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.25rem;
-    margin-bottom: 1.25rem;
-  }
-
-  .input-section label {
-    display: block;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.5rem;
-  }
-
-  textarea {
-    width: 100%;
-    height: 120px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.82rem;
-    padding: 0.75rem;
-    resize: vertical;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  textarea:focus { border-color: var(--accent); }
-
-  .domain-count {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-top: 0.4rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .progress-wrap {
-    height: 8px;
-    background: var(--border);
-    border-radius: 999px;
-    margin: 0.75rem 0;
-    overflow: hidden;
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-  .progress-wrap.visible { opacity: 1; }
-  .progress-bar {
-    height: 100%;
-    width: 0%;
-    background: var(--accent);
-    border-radius: 999px;
-    transition: width 0.4s ease;
-  }
-
-  .scan-meta {
-    display: none;
-    gap: 0.85rem;
-    flex-wrap: wrap;
-    font-size: 0.76rem;
-    color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
-    margin-bottom: 0.35rem;
-  }
-
-  .scan-meta.visible { display: flex; }
-
-  .spinner {
-    width: 13px;
-    height: 13px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    display: none;
-  }
-
-  .spinner.visible { display: inline-block; }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .scan-summary {
-    display: none;
-    margin: 0.8rem 0 0.2rem;
-    padding: 0.65rem 0.8rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface-hover);
-  }
-
-  .scan-summary.visible { display: block; }
-
-  .scan-summary h3 {
-    font-size: 0.82rem;
-    margin-bottom: 0.35rem;
-    color: var(--green);
-  }
-
-  .scan-summary p {
-    font-size: 0.76rem;
-    color: var(--text-muted);
-    margin: 0.15rem 0;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .btn-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-
-  .btn-primary, .btn-secondary, .btn-stop {
-    padding: 0.55rem 1.2rem;
-    border: none;
-    border-radius: 7px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: #3d7de5; }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-secondary { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border); }
-  .btn-secondary:hover { background: var(--border); }
-  .btn-stop { background: var(--red); color: #fff; }
-  .btn-stop:hover { background: #e05252; }
-
-  #statusMsg {
-    font-size: 0.82rem;
-    color: var(--text-muted);
-    margin-left: 0.5rem;
-  }
-
-  /* Stats bar */
-  .stats-bar {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 1rem;
-    flex-wrap: wrap;
-  }
-  .stat-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.7rem;
-    border-radius: 6px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .stat-chip .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-  }
-
-  /* Table */
-  .table-wrap {
-    overflow-x: auto;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.78rem;
-    white-space: nowrap;
-  }
-
-  thead th {
-    background: var(--bg);
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.65rem 0.6rem;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }
-
-  tbody td {
-    padding: 0.55rem 0.6rem;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  tbody tr:hover { background: var(--surface-hover); }
-
-  .empty {
-    text-align: center;
-    padding: 2.5rem 1rem !important;
-    color: var(--text-muted);
-    font-style: italic;
-  }
-
-  /* Status badges */
-  .badge {
-    display: inline-block;
-    padding: 0.2rem 0.55rem;
-    border-radius: 4px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-  .badge-active { background: var(--green-bg); color: var(--green); }
-  .badge-error { background: var(--red-bg); color: var(--red); }
-  .badge-parked { background: var(--gray-bg); color: var(--gray); }
-  .badge-coming-soon { background: var(--yellow-bg); color: var(--yellow); }
-  .badge-under-construction { background: var(--orange-bg); color: var(--orange); }
-  .badge-no-content { background: var(--purple-bg); color: var(--purple); }
-  .badge-shell { background: var(--cyan-bg); color: var(--cyan); }
-  .badge-suspended { background: var(--red-bg); color: var(--red); }
-  .badge-scanning { background: var(--accent-glow); color: var(--accent); }
-
-  .social-link {
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 0.75rem;
-  }
-  .social-link:hover { text-decoration: underline; }
-
-  .signals {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-  }
-  .signals .sig-yes { color: var(--green); }
-  .signals .sig-no { color: var(--red); opacity: 0.5; }
-
-  .pages-col {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    color: var(--text-muted);
-  }
-
-  @media (max-width: 768px) {
-    body { padding: 0.75rem; }
-    .container { max-width: 100%; }
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Intelligence v3.1</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0a0e17;--bg2:#111827;--card:#151d2e;--card-h:#1a2540;--bdr:#1e2a42;--bdr-g:#2563eb33;--t1:#e8edf5;--t2:#8896b0;--t3:#4a5875;--acc:#3b82f6;--acc-g:#3b82f640;--grn:#22c55e;--grn-b:#22c55e15;--red:#ef4444;--red-b:#ef444415;--org:#f59e0b;--org-b:#f59e0b15;--yel:#eab308;--yel-b:#eab30815;--pur:#a855f7;--pur-b:#a855f715;--cyn:#06b6d4;--cyn-b:#06b6d415;--blu:#3b82f6;--blu-b:#3b82f615}
+    html{scroll-behavior:smooth}body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;line-height:1.6}
+    .bg-grid{position:fixed;inset:0;background-image:linear-gradient(rgba(59,130,246,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(59,130,246,.03) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;z-index:0}
+    .bg-glow{position:fixed;top:-200px;left:50%;transform:translateX(-50%);width:800px;height:600px;background:radial-gradient(ellipse,rgba(59,130,246,.08),transparent 70%);pointer-events:none;z-index:0}
+    .container{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:2rem 1.5rem 4rem}
+    .header{text-align:center;padding:2.5rem 0 2rem}
+    .header-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:var(--card);border:1px solid var(--bdr);border-radius:100px;font-size:.75rem;font-weight:600;color:var(--acc);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+    .header-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--grn);animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .header h1{font-family:'JetBrains Mono',monospace;font-size:2.1rem;font-weight:700;letter-spacing:-.03em;margin-bottom:.4rem;background:linear-gradient(135deg,#e8edf5,#8896b0);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .header p{color:var(--t2);font-size:.95rem;max-width:550px;margin:0 auto}
+    .tabs{display:flex;gap:4px;margin-bottom:2rem;max-width:760px;margin-left:auto;margin-right:auto;background:var(--bg2);border-radius:10px;padding:4px}
+    .tab{flex:1;padding:10px;background:none;border:none;border-radius:8px;color:var(--t2);font-size:.82rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif}
+    .tab:hover{color:var(--t1)}.tab.active{background:var(--card);color:var(--t1);box-shadow:0 1px 4px rgba(0,0,0,.2)}
+    input,textarea{font-family:'JetBrains Mono',monospace}
+    .search-section{display:none;gap:10px;margin-bottom:2rem;max-width:700px;margin-left:auto;margin-right:auto}
+    .search-input-wrap{flex:1;position:relative}
+    .search-input-wrap .icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
+    .sinput{width:100%;padding:14px 16px 14px 46px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;color:var(--t1);font-size:1rem;outline:none;transition:border-color .2s,box-shadow .2s}
+    .sinput::placeholder{color:var(--t3)}.sinput:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-g)}
+    .sinput.invalid{border-color:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.2)}
+    .val-msg{font-size:.75rem;color:var(--red);margin-top:4px;display:none}
+    .btn{padding:14px 28px;background:var(--acc);border:none;border-radius:12px;color:#fff;font-size:.95rem;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;font-family:'DM Sans',sans-serif}
+    .btn:hover{background:#2563eb;transform:translateY(-1px);box-shadow:0 4px 20px var(--acc-g)}.btn:active{transform:translateY(0)}.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+    .btn-sm{padding:9px 18px;font-size:.82rem;border-radius:10px}
+    .btn-csv{background:var(--grn)}.btn-csv:hover{background:#16a34a;box-shadow:0 4px 16px rgba(34,197,94,.3)}
+    .btn-pur{background:var(--pur)}.btn-pur:hover{background:#9333ea}
+    .btn-red{background:var(--red)}.btn-red:hover{background:#dc2626}
+    .bulk-area{display:none;max-width:700px;margin:0 auto 2rem}
+    .ta{width:100%;height:160px;padding:14px 16px;background:var(--card);border:1px solid var(--bdr);border-radius:12px;color:var(--t1);font-size:.88rem;outline:none;resize:vertical;transition:border-color .2s,box-shadow .2s;margin-bottom:6px}
+    .ta::placeholder{color:var(--t3)}.ta:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-g)}
+    .count{font-size:.78rem;color:var(--t3);margin-bottom:10px;font-family:'JetBrains Mono',monospace}
+    .btn-row{display:flex;gap:8px}
+    .loader{display:none;text-align:center;padding:3rem}.loader.show{display:block}
+    .spinner{width:44px;height:44px;border:3px solid var(--bdr);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 1rem}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loader-text{color:var(--t2);font-size:.9rem}.loader-hl{font-family:'JetBrains Mono',monospace;color:var(--acc);font-weight:600}
+    .pbar-wrap{max-width:400px;margin:1rem auto 0;background:var(--bg2);border-radius:8px;height:8px;overflow:hidden}
+    .pbar{height:100%;background:linear-gradient(90deg,var(--acc),var(--grn));border-radius:8px;transition:width .3s;width:0%}
+    .ptext{font-size:.78rem;color:var(--t3);margin-top:6px;font-family:'JetBrains Mono',monospace}
+    .results-area{display:none}
+    .status-hero{background:var(--card);border:1px solid var(--bdr);border-radius:16px;padding:2rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;position:relative;overflow:hidden}
+    .status-hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+    .status-hero[data-c="green"]::before{background:linear-gradient(90deg,var(--grn),#10b981)}
+    .status-hero[data-c="red"]::before{background:linear-gradient(90deg,var(--red),#dc2626)}
+    .status-hero[data-c="orange"]::before{background:linear-gradient(90deg,var(--org),#d97706)}
+    .status-hero[data-c="yellow"]::before{background:linear-gradient(90deg,var(--yel),#ca8a04)}
+    .status-hero[data-c="blue"]::before{background:linear-gradient(90deg,var(--blu),#2563eb)}
+    .si{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0}
+    .si.green{background:var(--grn-b)}.si.red{background:var(--red-b)}.si.orange{background:var(--org-b)}.si.yellow{background:var(--yel-b)}.si.blue{background:var(--blu-b)}
+    .sd{font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:700;margin-bottom:4px}
+    .sl{display:inline-flex;padding:4px 12px;border-radius:100px;font-size:.76rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+    .sl.green{background:var(--grn-b);color:var(--grn)}.sl.red{background:var(--red-b);color:var(--red)}.sl.orange{background:var(--org-b);color:var(--org)}.sl.yellow{background:var(--yel-b);color:var(--yel)}.sl.blue{background:var(--blu-b);color:var(--blu)}
+    .sr{color:var(--t2);font-size:.86rem;margin-top:6px}
+    .sm{text-align:right;flex-shrink:0}.smi{font-size:.76rem;color:var(--t3);margin-bottom:3px}.smi span{color:var(--t2);font-family:'JetBrains Mono',monospace;font-weight:500}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .card{background:var(--card);border:1px solid var(--bdr);border-radius:14px;padding:1.5rem;transition:border-color .2s}.card:hover{border-color:var(--bdr-g)}
+    .ch{display:flex;align-items:center;gap:10px;margin-bottom:1.25rem}
+    .ci{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1rem}
+    .ci.blue{background:var(--blu-b)}.ci.green{background:var(--grn-b)}.ci.purple{background:var(--pur-b)}.ci.cyan{background:var(--cyn-b)}.ci.orange{background:var(--org-b)}
+    .ct{font-weight:600;font-size:.93rem}
+    .ir{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--bdr)}.ir:last-child{border-bottom:none}
+    .il{font-size:.8rem;color:var(--t3);font-weight:500}
+    .iv{font-family:'JetBrains Mono',monospace;font-size:.83rem;font-weight:500;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .iv.green{color:var(--grn)}.iv.red{color:var(--red)}.iv.orange{color:var(--org)}
+    .card-full{grid-column:1/-1}
+    .cv{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;margin-bottom:1rem;font-weight:600;font-size:.9rem}
+    .cv.green{background:var(--grn-b);color:var(--grn)}.cv.red{background:var(--red-b);color:var(--red)}.cv.orange{background:var(--org-b);color:var(--org)}.cv.yellow{background:var(--yel-b);color:var(--yel)}.cv.blue{background:var(--blu-b);color:var(--blu)}
+    .cv-c{margin-left:auto;font-size:.78rem;opacity:.8}
+    .cs{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}
+    .csi{background:var(--bg2);border-radius:8px;padding:9px;text-align:center}
+    .csv2{font-family:'JetBrains Mono',monospace;font-size:1rem;font-weight:700}.csl{font-size:.68rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+    .rb{background:var(--red-b);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px;margin-bottom:1rem}
+    .rb-t{font-size:.84rem;font-weight:700;color:var(--red);margin-bottom:8px}.rb-d{font-size:.8rem;color:var(--t2);padding:3px 0}.rb-d span{font-family:'JetBrains Mono',monospace;color:var(--t1)}
+    .fb{display:inline-block;padding:3px 10px;border-radius:6px;font-size:.7rem;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:.04em;margin:2px 4px 2px 0;background:var(--bg2);color:var(--t3)}.fb.warn{background:var(--red-b);color:var(--red)}.fb.info{background:var(--blu-b);color:var(--blu)}
+    .bsum{display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+    .bsi{background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:.9rem 1.3rem;text-align:center;flex:1;min-width:100px}
+    .bsv{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:700}.bsl{font-size:.72rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+    .bact{display:flex;justify-content:flex-end;margin-bottom:1rem;gap:8px;flex-wrap:wrap}
+    .btw{overflow-x:auto;border-radius:12px;border:1px solid var(--bdr)}
+    .bt{width:100%;border-collapse:collapse;font-size:.82rem}
+    .bt thead{background:var(--bg2)}
+    .bt th{padding:10px 11px;text-align:left;font-size:.7rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr);white-space:nowrap}
+    .bt td{padding:8px 11px;border-bottom:1px solid var(--bdr);vertical-align:top}.bt tr:last-child td{border-bottom:none}.bt tr:hover{background:var(--card-h)}
+    .bd{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.78rem}
+    .bsb{display:inline-block;padding:3px 8px;border-radius:6px;font-size:.68rem;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+    .bsb.ACTIVE{background:var(--grn-b);color:var(--grn)}.bsb.DEAD,.bsb.DOWN,.bsb.SUSPENDED{background:var(--red-b);color:var(--red)}.bsb.PARKED,.bsb.NO_CONTENT,.bsb.DEFAULT_PAGE,.bsb.SHELL_SITE{background:var(--org-b);color:var(--org)}.bsb.COMING_SOON,.bsb.ISSUES{background:var(--yel-b);color:var(--yel)}.bsb.CROSS_DOMAIN_REDIRECT{background:var(--red-b);color:var(--red)}.bsb.POLITICAL_CAMPAIGN{background:var(--blu-b);color:var(--blu)}.bsb.ERROR{background:var(--red-b);color:var(--red)}
+    .bv{font-weight:700;font-size:.8rem}.bv.yes{color:var(--grn)}.bv.no{color:var(--red)}
+    .social-link{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:var(--bg2);border-radius:5px;font-size:.7rem;color:var(--acc);text-decoration:none;margin:2px;font-family:'JetBrains Mono',monospace;transition:background .2s}.social-link:hover{background:var(--card-h);color:var(--t1)}
+    .error-box{display:none;background:var(--red-b);border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;color:var(--red);font-weight:500}.error-box.show{display:block}
+    .mono{font-family:'JetBrains Mono',monospace}
+    .retry-note{font-size:.72rem;color:var(--org);font-style:italic;margin-top:4px}
+    @media(max-width:640px){.header h1{font-size:1.4rem}.search-section{flex-direction:column}.status-hero{flex-direction:column;text-align:center}.sm{text-align:center}.cards{grid-template-columns:1fr}.cs{grid-template-columns:repeat(2,1fr)}.bt{font-size:.74rem}.bt th,.bt td{padding:6px 7px}.btn-row{flex-direction:column}}
+  </style>
 </head>
 <body>
-
+<div class="bg-grid"></div><div class="bg-glow"></div>
 <div class="container">
-  <header>
-    <h1>Website <span>Intelligence</span> Scanner</h1>
-    <p>v2.0 — Multi-page crawl • Layered classification • Business signal detection</p>
+  <header class="header">
+    <div class="header-badge"><span class="dot"></span> Intelligence Engine v3.1</div>
+    <h1>Website Intelligence</h1>
+    <p>Domain analysis, content detection, business extraction & social signals.</p>
   </header>
-
-  <div class="input-section">
-    <label>Enter domains (one per line, max 50)</label>
-    <textarea id="input" placeholder="example.com&#10;anotherdomain.com&#10;mybusiness.net"></textarea>
-    <div class="domain-count" id="counter">0 / 50 domains</div>
-    <div class="scan-meta" id="scanMeta">
-      <span id="progressText">Progress: 0%</span>
-      <span id="domainProgress">Analyzing 0 / 0 domains...</span>
-      <span id="elapsed">Elapsed: 0s</span>
+  <div class="tabs">
+    <button class="tab active" data-tab="single" onclick="switchTab('single')">Single Domain</button>
+    <button class="tab" data-tab="bulk" onclick="switchTab('bulk')">Bulk Analysis</button>
+    <button class="tab" data-tab="biz" onclick="switchTab('biz')">Business Info</button>
+  </div>
+  <div class="search-section" id="sec-single">
+    <div class="search-input-wrap">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" class="sinput" id="single-input" placeholder="Enter domain (e.g. example.com)" autocomplete="off" spellcheck="false">
+      <div class="val-msg" id="single-val">Please enter a valid domain (e.g. example.com)</div>
     </div>
-    <div class="progress-wrap" id="progressWrap">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
+    <button class="btn" onclick="doSingle()">Analyze</button>
+  </div>
+  <div class="bulk-area" id="sec-bulk">
+    <textarea class="ta" id="bulk-ta" placeholder="Enter domains, one per line (max 100):&#10;example.com&#10;google.com" oninput="updateCt('bulk-ta','bulk-ct')"></textarea>
+    <div class="count" id="bulk-ct">0 domains (max 100)</div>
     <div class="btn-row">
-      <button class="btn-primary" id="btnScan">Scan Websites</button>
-      <button class="btn-secondary" id="btnExport">Export CSV</button>
-      <button class="btn-stop" id="btnStop" style="display:none;">Stop</button>
-      <span class="spinner" id="spinner" aria-hidden="true"></span>
-      <span id="statusMsg"></span>
+      <button class="btn" id="bulk-btn" onclick="doBulk()" style="flex:1">Analyze All Domains</button>
+      <button class="btn btn-sm btn-red" id="bulk-cancel" onclick="cancelOp('bulk')" style="display:none">⏹ Cancel</button>
     </div>
-    <div class="scan-summary" id="scanSummary"></div>
   </div>
-
-  <div class="stats-bar" id="statsBar" style="display:none;"></div>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Domain</th>
-          <th>Status</th>
-          <th>Country</th>
-          <th>Business Name</th>
-          <th>Street</th>
-          <th>City</th>
-          <th>State</th>
-          <th>Zip</th>
-          <th>Phone</th>
-          <th>Email</th>
-          <th>Domain age</th>
-          <th>Facebook</th>
-          <th>Instagram</th>
-          <th>LinkedIn</th>
-          <th>GMB</th>
-          <th>Signals</th>
-          <th>Pages Crawled</th>
-          <th>Reason</th>
-        </tr>
-      </thead>
-      <tbody id="tbody">
-        <tr><td colspan="19" class="empty">Enter domains and click Scan to begin</td></tr>
-      </tbody>
-    </table>
+  <div class="bulk-area" id="sec-biz">
+    <textarea class="ta" id="biz-ta" placeholder="Enter domains for business extraction (max 100):&#10;bocasmilecenter.com&#10;millerandsonsplumbing.net" oninput="updateCt('biz-ta','biz-ct')"></textarea>
+    <div class="count" id="biz-ct">0 domains (max 100)</div>
+    <div class="btn-row">
+      <button class="btn btn-pur" id="biz-btn" onclick="doBiz()" style="flex:1">Extract Business Info</button>
+      <button class="btn btn-sm btn-red" id="biz-cancel" onclick="cancelOp('biz')" style="display:none">⏹ Cancel</button>
+    </div>
   </div>
+  <div class="error-box" id="errbox"></div>
+  <div class="loader" id="loader"><div class="spinner"></div><div class="loader-text">Processing <span class="loader-hl" id="loader-hl">...</span></div><div class="loader-text" style="margin-top:4px;font-size:.78rem;color:var(--t3)" id="loader-sub"></div><div class="pbar-wrap" id="pbar-wrap" style="display:none"><div class="pbar" id="pbar"></div></div><div class="ptext" id="ptext" style="display:none"></div></div>
+  <div class="results-area" id="res-single"></div>
+  <div class="results-area" id="res-bulk"></div>
+  <div class="results-area" id="res-biz"></div>
 </div>
-
 <script>
-(function() {
+const API=window.location.origin;
+let bulkData=null,bizData=null;
+let cancelCtrl={bulk:null,biz:null};
 
-  // ---- CONFIG ----
-  var API = ""; // Same origin — backend serves both API and frontend
-  var MAX_DOMAINS = 50;
+// === DOMAIN VALIDATION ===
+function isValidDomain(d){
+  d=d.trim().toLowerCase().replace(/^(https?:\/\/)/,'').replace(/\/.*$/,'').replace(/^www\./,'');
+  // allow subdomains, TLDs, hyphens — reject IPs, empty, spaces
+  return /^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)*\.[a-z]{2,}$/i.test(d);
+}
+function validateSingle(){
+  const d=document.getElementById('single-input').value.trim();
+  const v=document.getElementById('single-val');
+  const inp=document.getElementById('single-input');
+  if(!d){v.style.display='none';inp.classList.remove('invalid');return false}
+  if(!isValidDomain(d)){v.style.display='block';inp.classList.add('invalid');return false}
+  v.style.display='none';inp.classList.remove('invalid');return true;
+}
 
-  var stopped = false;
-  var allResults = [];
+// === TAB SWITCHING (results persist) ===
+function switchTab(t){
+  document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
+  document.querySelector('[data-tab="'+t+'"]').classList.add('active');
+  document.getElementById('sec-single').style.display=t==='single'?'flex':'none';
+  document.getElementById('sec-bulk').style.display=t==='bulk'?'block':'none';
+  document.getElementById('sec-biz').style.display=t==='biz'?'block':'none';
+  // Show matching results, hide others — results STAY in DOM
+  document.getElementById('res-single').style.display=t==='single'&&document.getElementById('res-single').innerHTML?'block':'none';
+  document.getElementById('res-bulk').style.display=t==='bulk'&&document.getElementById('res-bulk').innerHTML?'block':'none';
+  document.getElementById('res-biz').style.display=t==='biz'&&document.getElementById('res-biz').innerHTML?'block':'none';
+  document.getElementById('errbox').classList.remove('show');
+  document.getElementById('loader').classList.remove('show');
+}
+function updateCt(taId,ctId){const c=document.getElementById(taId).value.trim().split('\n').filter(d=>d.trim()).length;const e=document.getElementById(ctId);e.textContent=c+' domain'+(c!==1?'s':'')+' (max 100)';e.style.color=c>100?'var(--red)':'var(--t3)'}
+document.getElementById('single-input').addEventListener('keydown',e=>{if(e.key==='Enter')doSingle()});
+document.getElementById('single-input').addEventListener('input',()=>{validateSingle()});
 
-  // ---- DOM ----
-  var input = document.getElementById("input");
-  var tbody = document.getElementById("tbody");
-  var counter = document.getElementById("counter");
-  var statusMsg = document.getElementById("statusMsg");
-  var progressWrap = document.getElementById("progressWrap");
-  var progressBar = document.getElementById("progressBar");
-  var btnScan = document.getElementById("btnScan");
-  var btnExport = document.getElementById("btnExport");
-  var btnStop = document.getElementById("btnStop");
-  var statsBar = document.getElementById("statsBar");
-  var spinner = document.getElementById("spinner");
-  var scanMeta = document.getElementById("scanMeta");
-  var progressText = document.getElementById("progressText");
-  var domainProgress = document.getElementById("domainProgress");
-  var elapsed = document.getElementById("elapsed");
-  var scanSummary = document.getElementById("scanSummary");
+// === CANCEL ===
+function cancelOp(type){
+  if(cancelCtrl[type]){cancelCtrl[type].abort();cancelCtrl[type]=null}
+}
 
-  var loading = false;
-  var progress = 0;
-  var totalDomains = 0;
-  var elapsedSeconds = 0;
-  var completedDomains = 0;
-  var scanStartTime = 0;
-  var simInterval = null;
-  var elapsedInterval = null;
-  var activeHealthXhr = null;
-  var activeBatchXhr = null;
-  var domainRowMap = {};
-  
-  // ---- HELPERS ----
-  function esc(s) {
-    if (!s) return "";
-    var d = document.createElement("div");
-    d.appendChild(document.createTextNode(s));
-    return d.innerHTML;
-  }
+// === HELPERS ===
+function E(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function T(s,n){return s&&s.length>n?s.substring(0,n)+'…':s||''}
+function rows(a){return a.map(([l,v,c])=>'<div class="ir"><span class="il">'+l+'</span><span class="iv'+(c?' '+c:'')+'">'+E(String(v||'—'))+'</span></div>').join('')}
+function stat(v,l){return'<div class="csi"><div class="csv2">'+v+'</div><div class="csl">'+l+'</div></div>'}
+function sumBox(v,l,c){return'<div class="bsi"><div class="bsv" style="color:var('+c+')">'+v+'</div><div class="bsl">'+l+'</div></div>'}
+function showLoader(t,sub){document.getElementById('loader-hl').textContent=t;document.getElementById('loader-sub').textContent=sub||'';document.getElementById('loader').classList.add('show')}
+function hideLoader(){document.getElementById('loader').classList.remove('show');document.getElementById('pbar-wrap').style.display='none';document.getElementById('ptext').style.display='none'}
+function showErr(m){const e=document.getElementById('errbox');e.textContent=m;e.classList.add('show')}
+function showProgress(c,t,d){document.getElementById('pbar-wrap').style.display='block';document.getElementById('ptext').style.display='block';const p=t>0?Math.round(c/t*100):0;document.getElementById('pbar').style.width=p+'%';document.getElementById('ptext').textContent=c+'/'+t+' done'+(d?' — '+d:'');document.getElementById('loader-hl').textContent=c+'/'+t}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const fmtS=s=>({ACTIVE:'Active',DEAD:'Dead',DOWN:'Down',PARKED:'Parked',COMING_SOON:'Coming Soon',NO_CONTENT:'No Content',DEFAULT_PAGE:'Default Page',SUSPENDED:'Suspended',SHELL_SITE:'Shell Site',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign',ISSUES:'Issues',ERROR:'Error',UNKNOWN:'Unknown'}[s]||s);
+const sEmoji=s=>({ACTIVE:'✓',DEAD:'✗',DOWN:'✗',PARKED:'⊘',COMING_SOON:'◔',NO_CONTENT:'○',DEFAULT_PAGE:'▤',SUSPENDED:'⊘',SHELL_SITE:'◇',CROSS_DOMAIN_REDIRECT:'↯',POLITICAL_CAMPAIGN:'★',ISSUES:'!'}[s]||'?');
+const fmtV=v=>({VALID:'Genuine Active Website',PARKED:'Parked / For Sale',COMING_SOON:'Coming Soon',NO_CONTENT:'No Meaningful Content',DEFAULT_PAGE:'Default Server Page',SUSPENDED:'Suspended',SHELL_SITE:'Template Shell',CROSS_DOMAIN_REDIRECT:'Cross-Domain Redirect',POLITICAL_CAMPAIGN:'Political Campaign'}[v]||v);
+const vC=v=>({VALID:'green',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue'}[v]||'orange');
+const vE=v=>({VALID:'✅',PARKED:'🅿️',COMING_SOON:'🚧',NO_CONTENT:'📭',DEFAULT_PAGE:'📄',SUSPENDED:'🚫',SHELL_SITE:'🏗️',CROSS_DOMAIN_REDIRECT:'⚠️',POLITICAL_CAMPAIGN:'🏛️'}[v]||'❓');
+const sColor=s=>({ACTIVE:'green',DEAD:'red',DOWN:'red',PARKED:'orange',COMING_SOON:'yellow',NO_CONTENT:'orange',DEFAULT_PAGE:'orange',SUSPENDED:'red',SHELL_SITE:'orange',CROSS_DOMAIN_REDIRECT:'red',POLITICAL_CAMPAIGN:'blue',ISSUES:'yellow',ERROR:'red'}[s]||'orange');
 
-  function getDomains() {
-    var lines = input.value.split("\n");
-    var out = [];
-    for (var i = 0; i < lines.length; i++) {
-      var d = lines[i].trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
-      if (d && out.indexOf(d) === -1) out.push(d);
-    }
-    return out.slice(0, MAX_DOMAINS);
-  }
+// === WARMUP: ping server to wake Render free tier ===
+async function warmup(){
+  try{await fetch(API+'/api/health',{signal:AbortSignal.timeout(5000)})}catch(e){}
+}
 
-  function setProgress(pct) {
-    progress = Math.max(0, Math.min(pct, 100));
-    progressBar.style.width = progress + "%";
-    progressText.textContent = "Progress: " + Math.round(progress) + "%";
-  }
-
-  function setDomainProgress(done, total) {
-    domainProgress.textContent = "Analyzing " + done + " / " + total + " domains...";
-  }
-
-  function setLoadingState(isLoading) {
-    loading = isLoading;
-    btnScan.disabled = isLoading;
-    if (isLoading) {
-      spinner.classList.add("visible");
-      progressWrap.classList.add("visible");
-      scanMeta.classList.add("visible");
-      statusMsg.textContent = "Analyzing domains...";
-      statusMsg.style.color = "var(--text-muted)";
-    } else {
-      spinner.classList.remove("visible");
-    }
-  }
-
-  function stopTimers() {
-    if (simInterval) {
-      clearInterval(simInterval);
-      simInterval = null;
-    }
-    if (elapsedInterval) {
-      clearInterval(elapsedInterval);
-      elapsedInterval = null;
+// === SINGLE FETCH WITH RETRY ===
+async function fetchWithRetry(url,body,retries=1,signal=null){
+  for(let i=0;i<=retries;i++){
+    try{
+      const opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+      if(signal)opts.signal=signal;
+      const r=await fetch(url,opts);
+      if(r.ok)return await r.json();
+      if(r.status>=500&&i<retries){await wait(1500);continue}
+      return await r.json();
+    }catch(e){
+      if(e.name==='AbortError')throw e;
+      if(i<retries){await wait(2000);continue}
+      throw e;
     }
   }
+}
 
-  function startTimers() {
-    scanStartTime = Date.now();
-    elapsedSeconds = 0;
-    elapsed.textContent = "Elapsed: 0s";
+// ═══════════════════════════════════════
+// SINGLE DOMAIN
+// ═══════════════════════════════════════
+async function doSingle(){
+  const d=document.getElementById('single-input').value.trim();
+  if(!d)return;
+  if(!validateSingle())return;
+  document.getElementById('errbox').classList.remove('show');
+  showLoader(d,'Waking server & analyzing...');
+  try{
+    await warmup();
+    const data=await fetchWithRetry(API+'/api/analyze',{domain:d},2);
+    if(data.error&&!data.overallStatus)throw new Error(data.message||data.error);
+    renderSingle(data);
+  }catch(e){showErr('Failed: '+e.message)}finally{hideLoader()}
+}
+function renderSingle(d){
+  const el=document.getElementById('res-single');el.style.display='block';
+  const c=d.statusColor||'gray';
+  let h='<div class="status-hero" data-c="'+c+'"><div class="si '+c+'">'+sEmoji(d.overallStatus)+'</div><div style="flex:1"><div class="sd">'+E(d.domain)+'</div><span class="sl '+c+'">'+fmtS(d.overallStatus)+'</span><div class="sr">'+(d.content?.reasons?.[0]||'')+'</div></div><div class="sm"><div class="smi">Response <span>'+(d.http?.responseTime?d.http.responseTime+'ms':'—')+'</span></div><div class="smi">HTTP <span>'+(d.http?.statusCode||'—')+'</span></div><div class="smi">SSL <span>'+(d.ssl?.valid?'✓ Valid':'✗')+'</span></div></div></div>';
+  h+='<div class="cards">';
+  h+='<div class="card"><div class="ch"><div class="ci blue">⚡</div><div class="ct">HTTP</div></div>'+rows([['Status',d.http?.statusCode?d.http.statusCode+' '+(d.http.statusText||''):'N/A',d.http?.statusCode>=200&&d.http?.statusCode<400?'green':'red'],['Response',d.http?.responseTime?d.http.responseTime+'ms':'N/A'],['Final URL',T(d.http?.finalUrl,40)],['Up',d.http?.isUp?'Yes':'No',d.http?.isUp?'green':'red']])+'</div>';
+  const ssl=d.ssl||{};h+='<div class="card"><div class="ch"><div class="ci green">🔒</div><div class="ct">SSL</div></div>'+rows([['Valid',ssl.valid?'Yes':'No',ssl.valid?'green':'red'],['Issuer',ssl.issuer],['Days Left',ssl.daysRemaining!=null?ssl.daysRemaining+'d':'N/A',ssl.daysRemaining>30?'green':'red'],['Protocol',ssl.protocol]])+'</div>';
+  const dns=d.dns||{};h+='<div class="card"><div class="ch"><div class="ci purple">🌐</div><div class="ct">DNS</div></div>'+rows([['A',dns.aRecords?.length>0?dns.aRecords.join(', '):'None',dns.hasARecord?'green':'red'],['MX',dns.mxRecords?.length>0?dns.mxRecords.map(m=>m.exchange).join(', '):'None'],['NS',dns.nsRecords?.length>0?dns.nsRecords.slice(0,3).join(', '):'None']])+'</div>';
+  h+='<div class="card"><div class="ch"><div class="ci cyan">🖥</div><div class="ct">Server</div></div>'+rows([['Server',d.http?.headers?.server||'—'],['Powered By',d.http?.headers?.poweredBy||'—'],['Type',d.http?.headers?.contentType||'—']])+'</div>';
+  const ct=d.content||{};const vc=vC(ct.verdict);
+  h+='<div class="card card-full"><div class="ch"><div class="ci orange">📊</div><div class="ct">Content Intelligence</div></div>';
+  h+='<div class="cv '+vc+'"><span style="font-size:1.1rem">'+vE(ct.verdict)+'</span><span>'+fmtV(ct.verdict)+'</span><span class="cv-c">'+(ct.confidence||0)+'%</span></div>';
+  if(ct.reasons?.length>0)h+='<div style="color:var(--t2);font-size:.82rem;margin-bottom:1rem">'+ct.reasons.map(r=>'• '+E(r)).join('<br>')+'</div>';
+  if(ct.redirectInfo)h+='<div class="rb"><div class="rb-t">⚠ Cross-Domain Redirect</div><div class="rb-d">From: <span>'+E(ct.redirectInfo.source)+'</span></div><div class="rb-d">To: <span>'+E(ct.redirectInfo.target)+'</span></div><div class="rb-d">Method: <span>'+E(ct.redirectInfo.method)+'</span></div></div>';
+  h+='<div class="cs" style="margin-top:1rem">'+stat(ct.details?.wordCount||0,'Words')+stat(ct.details?.uniqueWordCount||0,'Unique')+stat(ct.details?.headings?.length||0,'Headings')+stat(ct.details?.images||0,'Images')+stat(ct.details?.links?.internal||0,'Int Links')+stat(ct.details?.forms||0,'Forms')+'</div>';
+  if(ct.details?.title)h+='<div style="margin-top:1rem;padding:9px 13px;background:var(--bg2);border-radius:8px"><span style="font-size:.7rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Title</span><br><span class="mono" style="font-size:.82rem">'+E(ct.details.title)+'</span></div>';
+  if(ct.flags?.length>0){h+='<div style="margin-top:10px">';ct.flags.forEach(f=>{const w=['CROSS_DOMAIN_REDIRECT','SUSPICIOUS_REDIRECT_TARGET','SHELL_SITE','PARKED'].includes(f);const i=['POLITICAL_CAMPAIGN','HAS_FEC_DISCLOSURE','WEB_APP_LOGIN'].includes(f);h+='<span class="fb '+(w?'warn':i?'info':'')+'">'+f.replace(/_/g,' ')+'</span>'});h+='</div>'}
+  h+='</div></div>';el.innerHTML=h;
+}
 
-    simInterval = setInterval(function() {
-      if (!loading) return;
-      if (progress < 95) {
-        var remaining = totalDomains - completedDomains;
-        var increment = remaining > 15 ? 1.8 : 1.1;
-        setProgress(Math.min(progress + increment, 95));
-      }
-    }, 500);
+// ═══════════════════════════════════════
+// BULK ANALYSIS (with retry + cancel + pacing)
+// ═══════════════════════════════════════
+async function doBulk(){
+  const txt=document.getElementById('bulk-ta').value.trim();if(!txt)return;
+  let doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
+  // Validate domains
+  const invalid=doms.filter(d=>!isValidDomain(d));
+  if(invalid.length>0){showErr('Invalid domains: '+invalid.slice(0,5).join(', ')+(invalid.length>5?' (+'+(invalid.length-5)+' more)':''));return}
+  if(!doms.length)return;if(doms.length>100){showErr('Max 100 domains');return}
 
-    elapsedInterval = setInterval(function() {
-      elapsedSeconds = Math.floor((Date.now() - scanStartTime) / 1000);
-      elapsed.textContent = "Elapsed: " + elapsedSeconds + "s";
-    }, 1000);
+  document.getElementById('errbox').classList.remove('show');
+  const ctrl=new AbortController();cancelCtrl.bulk=ctrl;
+  const btn=document.getElementById('bulk-btn');btn.disabled=true;
+  document.getElementById('bulk-cancel').style.display='block';
+  showLoader('Warming up...','Waking server before analysis...');
+
+  // Warmup ping
+  await warmup();await wait(500);
+
+  showProgress(0,doms.length,'');
+  const results=[];let retryQueue=[];
+
+  for(let i=0;i<doms.length;i++){
+    if(ctrl.signal.aborted)break;
+    showProgress(i,doms.length,doms[i]);
+    try{
+      const d=await fetchWithRetry(API+'/api/analyze',{domain:doms[i]},1,ctrl.signal);
+      results.push({domain:d.domain||doms[i],overallStatus:d.overallStatus||'ERROR',isGenuinelyValid:d.isGenuinelyValid||false,statusCode:d.http?.statusCode,confidence:d.content?.confidence,reasons:d.content?.reasons||[],flags:d.content?.flags||[],redirectInfo:d.content?.redirectInfo,title:d.content?.details?.title,wordCount:d.content?.details?.wordCount,uniqueWordCount:d.content?.details?.uniqueWordCount});
+    }catch(e){
+      if(e.name==='AbortError')break;
+      results.push({domain:doms[i],overallStatus:'ERROR',isGenuinelyValid:false,error:e.message,reasons:[e.message],flags:[]});
+      retryQueue.push(i);
+    }
+    if(i<doms.length-1)await wait(600); // pace requests
   }
 
-  function showSummary(submitted, processed, durationSeconds) {
-    var average = processed > 0 ? (durationSeconds / processed) : 0;
-    scanSummary.innerHTML = '<h3>Scan Complete</h3>' +
-      '<p>Total submitted: ' + submitted + ' domains</p>' +
-      '<p>Total processed: ' + processed + ' domains</p>' +
-      '<p>Completed in ' + durationSeconds.toFixed(1) + ' seconds</p>' +
-      '<p>Average per domain: ' + average.toFixed(2) + ' seconds</p>';
-    scanSummary.classList.add("visible");
-  }
-
-  // Domain count updater
-  input.addEventListener("input", function() {
-    var count = getDomains().length;
-    counter.textContent = count + " / " + MAX_DOMAINS + " domains";
-  });
-
-  // ---- STATUS BADGE ----
-  function statusBadge(status) {
-    var cls = "badge-error";
-    var label = status;
-
-    switch (status) {
-      case "ACTIVE": cls = "badge-active"; break;
-      case "SHELL_SITE": cls = "badge-shell"; break;
-      case "COMING_SOON": cls = "badge-coming-soon"; break;
-      case "PARKED": cls = "badge-parked"; break;
-      case "NO_CONTENT": cls = "badge-no-content"; break;
-      case "SUSPENDED": cls = "badge-suspended"; break;
-      case "DEFAULT_PAGE": cls = "badge-under-construction"; break;
-      case "CROSS_DOMAIN_REDIRECT": cls = "badge-under-construction"; break;
-      case "REDIRECT_HOST": cls = "badge-under-construction"; break;
-      case "DEAD": cls = "badge-error"; break;
-      case "DOWN": cls = "badge-error"; break;
-      case "ISSUES": cls = "badge-under-construction"; break;
-      case "ERROR": cls = "badge-error"; break;
-      default:                 cls = "badge-error";
-    }
-    return '<span class="badge ' + cls + '">' + esc(label) + '</span>';
-  }
-
-  // ---- SIGNALS DISPLAY ----
-  function signalsHtml(signalsStr) {
-    if (!signalsStr) return "";
-    return signalsStr
-      .replace(/✓/g, '<span class="sig-yes">✓</span>')
-      .replace(/✗/g, '<span class="sig-no">✗</span>');
-  }
-
-  // ---- SOCIAL LINK ----
-  function socialCell(url) {
-    if (!url) return '<span style="color:var(--text-muted)">—</span>';
-    try {
-      var u = new URL(url);
-      var short = u.pathname.replace(/\/$/, "").split("/").pop() || u.hostname;
-      return '<a href="' + esc(url) + '" target="_blank" class="social-link" title="' + esc(url) + '">' + esc(short) + '</a>';
-    } catch (e) {
-      return '<a href="' + esc(url) + '" target="_blank" class="social-link">Link</a>';
+  // Retry failed domains once more
+  if(retryQueue.length>0&&!ctrl.signal.aborted){
+    showLoader('Retrying '+retryQueue.length+' failed...','Second pass for failed domains');
+    for(const idx of retryQueue){
+      if(ctrl.signal.aborted)break;
+      try{
+        await wait(1000);
+        const d=await fetchWithRetry(API+'/api/analyze',{domain:doms[idx]},1,ctrl.signal);
+        // Replace the error entry
+        const ri=results.findIndex(r=>r.domain===doms[idx]&&r.overallStatus==='ERROR');
+        if(ri>=0)results[ri]={domain:d.domain||doms[idx],overallStatus:d.overallStatus||'ERROR',isGenuinelyValid:d.isGenuinelyValid||false,statusCode:d.http?.statusCode,confidence:d.content?.confidence,reasons:d.content?.reasons||[],flags:d.content?.flags||[],redirectInfo:d.content?.redirectInfo,title:d.content?.details?.title,wordCount:d.content?.details?.wordCount,uniqueWordCount:d.content?.details?.uniqueWordCount,retried:true};
+      }catch(e){if(e.name==='AbortError')break}
     }
   }
 
-// ---- BUILD TABLE ROW ----
-  function buildRow(r, num) {
-    var social = r.social || {};
-    return '<tr id="row-' + num + '">' +
-      '<td>' + num + '</td>' +
-      '<td><strong>' + esc(r.domain) + '</strong></td>' +
-      '<td>' + statusBadge(r.status) + '</td>' +
-      '<td>' + esc(r.country || "") + '</td>' +
-      '<td>' + esc(r.name || "") + '</td>' +
-      '<td>' + esc(r.street || "") + '</td>' +
-      '<td>' + esc(r.city || "") + '</td>' +
-      '<td>' + esc(r.state || "") + '</td>' +
-      '<td>' + esc(r.zip || "") + '</td>' +
-      '<td>' + esc(r.phone || "") + '</td>' +
-      '<td>' + esc(r.email || "") + '</td>' +
-      '<td>' + esc(r.domainAge || "") + '</td>' +
-      '<td>' + socialCell(social.facebook) + '</td>' +
-      '<td>' + socialCell(social.instagram) + '</td>' +
-      '<td>' + socialCell(social.linkedin) + '</td>' +
-      '<td>' + socialCell(social.gmb) + '</td>' +
-      '<td><span class="signals">' + signalsHtml(r.signals || "") + '</span></td>' +
-      '<td><span class="pages-col">' + esc(r.pagesCrawled || "") + '</span></td>' +
-      '<td>' + esc(r.reason || "") + '</td>' +
-      '</tr>';
+  btn.disabled=false;document.getElementById('bulk-cancel').style.display='none';cancelCtrl.bulk=null;
+  hideLoader();bulkData=results;renderBulk(results);
+}
+function renderBulk(res){
+  const el=document.getElementById('res-bulk');el.style.display='block';
+  const ok=res.filter(r=>r.isGenuinelyValid).length,bad=res.filter(r=>!r.isGenuinelyValid&&r.overallStatus!=='ERROR').length,err=res.filter(r=>r.overallStatus==='ERROR').length;
+  let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Valid','--grn')+sumBox(bad,'Invalid','--org')+sumBox(err,'Errors','--red')+'</div>';
+  h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBulkCSV()">⬇ Analysis CSV</button></div>';
+  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Valid?</th><th>Title</th><th>HTTP</th><th>Words</th><th>Confidence</th><th>Redirect Target</th><th>Flags</th><th>Remarks</th></tr></thead><tbody>';
+  res.forEach((r,i)=>{
+    h+='<tr><td class="mono" style="font-size:.74rem;color:var(--t3)">'+(i+1)+'</td>';
+    h+='<td><span class="bd">'+E(r.domain)+'</span>'+(r.retried?'<span style="font-size:.6rem;color:var(--org);margin-left:4px">↻</span>':'')+'</td>';
+    h+='<td><span class="bsb '+r.overallStatus+'">'+fmtS(r.overallStatus)+'</span></td>';
+    h+='<td><span class="bv '+(r.isGenuinelyValid?'yes':'no')+'">'+(r.isGenuinelyValid?'✓':'✗')+'</span></td>';
+    h+='<td style="font-size:.76rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.title||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+(r.statusCode||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+(r.wordCount??'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+(r.confidence?r.confidence+'%':'—')+'</td>';
+    h+='<td class="mono" style="font-size:.74rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.redirectInfo?.target||'—')+'</td>';
+    h+='<td style="font-size:.74rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.flags?.join(', ')||'—')+'</td>';
+    h+='<td style="color:var(--t2);font-size:.76rem;max-width:200px">'+E((r.reasons?.[0]||r.error||'—').substring(0,100))+'</td></tr>'});
+  h+='</tbody></table></div>';
+  if(res.some(r=>r.retried))h+='<div class="retry-note">↻ = auto-retried after initial failure</div>';
+  el.innerHTML=h;
+}
+
+// ═══════════════════════════════════════
+// BUSINESS INFO (with retry + cancel + pacing)
+// ═══════════════════════════════════════
+async function doBiz(){
+  const txt=document.getElementById('biz-ta').value.trim();if(!txt)return;
+  let doms=txt.split('\n').map(d=>d.trim()).filter(d=>d);
+  const invalid=doms.filter(d=>!isValidDomain(d));
+  if(invalid.length>0){showErr('Invalid domains: '+invalid.slice(0,5).join(', ')+(invalid.length>5?' (+'+(invalid.length-5)+' more)':''));return}
+  if(!doms.length)return;if(doms.length>100){showErr('Max 100 domains');return}
+
+  document.getElementById('errbox').classList.remove('show');
+  const ctrl=new AbortController();cancelCtrl.biz=ctrl;
+  const btn=document.getElementById('biz-btn');btn.disabled=true;
+  document.getElementById('biz-cancel').style.display='block';
+  showLoader('Warming up...','Waking server...');
+
+  await warmup();await wait(500);
+
+  showProgress(0,doms.length,'');
+  const results=[];let retryQueue=[];
+
+  for(let i=0;i<doms.length;i++){
+    if(ctrl.signal.aborted)break;
+    showProgress(i,doms.length,doms[i]);
+    try{
+      const d=await fetchWithRetry(API+'/api/extract-business',{domain:doms[i]},1,ctrl.signal);
+      results.push({domain:d.domain||doms[i],websiteStatus:d.websiteStatus||'UNKNOWN',reasons:d.reasons||[],...(d.business||{}),error:d.error||null});
+    }catch(e){
+      if(e.name==='AbortError')break;
+      results.push({domain:doms[i],websiteStatus:'ERROR',error:e.message,reasons:[e.message]});
+      retryQueue.push(i);
+    }
+    if(i<doms.length-1)await wait(600);
   }
 
-  // ---- SCANNING ROW (placeholder while waiting) ----
-  function scanningRow(domain, num) {
-    return '<tr id="row-' + num + '">' +
-      '<td>' + num + '</td>' +
-      '<td><strong>' + esc(domain) + '</strong></td>' +
-      '<td>' + statusBadge("Scanning...") + '</td>' +
-      '<td colspan="16" style="color:var(--text-muted);font-style:italic;">Crawling pages...</td>' +
-      '</tr>';
+  // Retry failed
+  if(retryQueue.length>0&&!ctrl.signal.aborted){
+    showLoader('Retrying '+retryQueue.length+' failed...','');
+    for(const idx of retryQueue){
+      if(ctrl.signal.aborted)break;
+      try{
+        await wait(1000);
+        const d=await fetchWithRetry(API+'/api/extract-business',{domain:doms[idx]},1,ctrl.signal);
+        const ri=results.findIndex(r=>r.domain===doms[idx]&&r.websiteStatus==='ERROR');
+        if(ri>=0)results[ri]={domain:d.domain||doms[idx],websiteStatus:d.websiteStatus||'UNKNOWN',reasons:d.reasons||[],...(d.business||{}),error:d.error||null,retried:true};
+      }catch(e){if(e.name==='AbortError')break}
+    }
   }
 
-  // ---- ERROR ROW ----
-  function errorRow(domain, error, num) {
-    return '<tr id="row-' + num + '">' +
-      '<td>' + num + '</td>' +
-      '<td><strong>' + esc(domain) + '</strong></td>' +
-      '<td><span class="badge badge-error">ERROR</span></td>' +
-      '<td colspan="15">—</td>' +
-      '<td>' + esc(error) + '</td>' +
-      '</tr>';
-  }
+  btn.disabled=false;document.getElementById('biz-cancel').style.display='none';cancelCtrl.biz=null;
+  hideLoader();bizData=results;renderBiz(results);
+}
+function renderBiz(res){
+  const el=document.getElementById('res-biz');el.style.display='block';
+  const ok=res.filter(r=>r.businessName&&!r.error).length;
+  let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Extracted','--grn')+sumBox(res.length-ok,'Failed/Empty','--red')+'</div>';
+  h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBizCSV()">⬇ Business CSV</button><button class="btn btn-sm btn-pur" onclick="exportCombinedCSV()">⬇ Combined CSV</button></div>';
+  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Country</th><th>Business Name</th><th>Street</th><th>City</th><th>State</th><th>ZIP</th><th>Phone</th><th>Email</th><th>Age</th><th>Socials</th></tr></thead><tbody>';
+  res.forEach((r,i)=>{
+    const a=r.address||{};
+    let soc='';
+    if(r.socials){['facebook','linkedin','instagram','twitter','youtube','tiktok','yelp','pinterest'].forEach(k=>{if(r.socials[k])soc+='<a class="social-link" href="'+E(r.socials[k])+'" target="_blank" rel="noopener">'+k.substring(0,2).toUpperCase()+'</a>'})}
+    h+='<tr><td class="mono" style="font-size:.72rem;color:var(--t3)">'+(i+1)+'</td>';
+    h+='<td><span class="bd">'+E(r.domain)+'</span>'+(r.retried?'<span style="font-size:.6rem;color:var(--org);margin-left:4px">↻</span>':'')+'</td>';
+    h+='<td><span class="bsb '+(r.websiteStatus||'')+'">'+fmtS(r.websiteStatus||'UNKNOWN')+'</span></td>';
+    h+='<td class="mono" style="font-size:.76rem">'+(r.country?.code||'—')+'</td>';
+    h+='<td style="font-size:.8rem;font-weight:600;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.businessName||r.error||'—')+'</td>';
+    h+='<td style="font-size:.76rem;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(a.street||'—')+'</td>';
+    h+='<td style="font-size:.78rem">'+E(a.city||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+E(a.state||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.78rem">'+E(a.zip||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.76rem;white-space:nowrap">'+E(r.phones?.[0]||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.72rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.emails?.[0]||'—')+'</td>';
+    h+='<td class="mono" style="font-size:.76rem">'+(r.domainAge?.ageFormatted||'—')+'</td>';
+    h+='<td>'+soc+'</td></tr>'});
+  h+='</tbody></table></div>';
+  if(res.some(r=>r.retried))h+='<div class="retry-note">↻ = auto-retried after initial failure</div>';
+  el.innerHTML=h;
+}
 
-  // ---- UPDATE STATS BAR ----
-  function updateStats() {
-    var counts = { ACTIVE: 0, SHELL_SITE: 0, COMING_SOON: 0, PARKED: 0, NO_CONTENT: 0, SUSPENDED: 0, ISSUES: 0, ERROR: 0, DOWN: 0, DEAD: 0 };
+// ═══════════════════════════════════════
+// CSV EXPORTS
+// ═══════════════════════════════════════
+function dl(fn,csv){const b=new Blob([csv],{type:'text/csv;charset=utf-8;'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)}
+function cr(cells){return cells.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')+'\n'}
+const today=new Date().toISOString().split('T')[0];
 
-    for (var i = 0; i < allResults.length; i++) {
-      var s = allResults[i].status || "ERROR";
-      if (counts.hasOwnProperty(s)) counts[s]++;
-      else counts["ERROR"]++;
-    }
-
-    var html = "";
-    var colors = {
-      ACTIVE: "var(--green)", SHELL_SITE: "var(--cyan)", COMING_SOON: "var(--yellow)",
-      PARKED: "var(--gray)", NO_CONTENT: "var(--purple)", SUSPENDED: "var(--red)",
-      ISSUES: "var(--orange)", ERROR: "var(--red)", DOWN: "var(--red)", DEAD: "var(--red)"
-    };
-
-    for (var key in counts) {
-      if (counts[key] > 0) {
-        html += '<span class="stat-chip" style="background:' + colors[key] + '15">' +
-          '<span class="dot" style="background:' + colors[key] + '"></span>' +
-          '<span style="color:' + colors[key] + '">' + counts[key] + ' ' + key + '</span></span>';
-      }
-    }
-
-    statsBar.innerHTML = html;
-    statsBar.style.display = html ? "flex" : "none";
-  }
-
-  // ---- EXPORT CSV ----
-  btnExport.addEventListener("click", function() {
-    if (allResults.length === 0) {
-      alert("No results to export. Run a scan first.");
-      return;
-    }
-
-    var headers = ["#","Domain","Status","Country","Business Name","Street","City","State","Zip","Phone","Email","Domain age","Facebook","Instagram","LinkedIn","GMB","Signals","Pages Crawled","Reason"];
-    var rows = [headers.join(",")];
-
-    for (var i = 0; i < allResults.length; i++) {
-      var r = allResults[i];
-      var social = r.social || {};
-      var row = [
-        i + 1,
-        csvSafe(r.domain),
-        csvSafe(r.status),
-        csvSafe(r.country),
-        csvSafe(r.name),
-        csvSafe(r.street),
-        csvSafe(r.city),
-        csvSafe(r.state),
-        csvSafe(r.zip),
-        csvSafe(r.phone),
-        csvSafe(r.email),
-        csvSafe(r.domainAge),
-        csvSafe(social.facebook),
-        csvSafe(social.instagram),
-        csvSafe(social.linkedin),
-        csvSafe(social.gmb),
-        csvSafe(r.signals),
-        csvSafe(r.pagesCrawled),
-        csvSafe(r.reason),
-      ];
-      rows.push(row.join(","));
-    }
-
-    var csv = rows.join("\n");
-    var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = "website-intelligence-" + new Date().toISOString().slice(0, 10) + ".csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-
-  function csvSafe(val) {
-    if (!val) return "";
-    val = String(val);
-    if (val.indexOf(",") !== -1 || val.indexOf('"') !== -1 || val.indexOf("\n") !== -1) {
-      return '"' + val.replace(/"/g, '""') + '"';
-    }
-    return val;
-  }
-
-  // ---- MAIN SCAN ----
-  btnScan.addEventListener("click", function() {
-    if (loading) return;
-    
-    var domains = getDomains();
-    if (domains.length === 0) {
-      statusMsg.textContent = "Enter at least one domain.";
-      statusMsg.style.color = "var(--yellow)";
-      return;
-    }
-
-    // Reset
-    stopTimers();
-    stopped = false;
-    allResults = [];
-    domainRowMap = {};
-    totalDomains = domains.length;
-    completedDomains = 0;
-    tbody.innerHTML = "";
-    statsBar.style.display = "none";
-    statsBar.innerHTML = "";
-    scanSummary.classList.remove("visible");
-    scanSummary.innerHTML = "";
-    setProgress(0);
-    setDomainProgress(0, totalDomains);
-    setLoadingState(true);
-    startTimers();
-    btnStop.style.display = "inline-block";
-
-    // Add scanning placeholders
-    for (var i = 0; i < domains.length; i++) {
-      var rowNum = i + 1;
-      domainRowMap[domains[i]] = rowNum;
-      tbody.innerHTML += scanningRow(domains[i], rowNum);
-    }
-
-    // ---- One-at-a-time domain scanning ----
-    var domainIndex = 0;
-
-    function scanFinished(wasStopped) {
-      stopTimers();
-      setLoadingState(false);
-      btnStop.style.display = "none";
-      setProgress(100);
-      elapsedSeconds = (Date.now() - scanStartTime) / 1000;
-      elapsed.textContent = "Elapsed: " + Math.round(elapsedSeconds) + "s";
-      if (wasStopped) {
-        statusMsg.textContent = "Stopped. " + completedDomains + "/" + domains.length + " scanned.";
-        statusMsg.style.color = "var(--yellow)";
-      } else {
-        statusMsg.textContent = "Done! " + domains.length + " domains scanned.";
-        statusMsg.style.color = "var(--green)";
-        showSummary(totalDomains, completedDomains, elapsedSeconds);
-      }
-      setDomainProgress(completedDomains, totalDomains);
-      updateStats();
-    }
-
-    function processNextDomain() {
-      if (stopped) { scanFinished(true); return; }
-      if (domainIndex >= domains.length) { scanFinished(false); return; }
-
-      var currentDomain = domains[domainIndex];
-      var currentRowNum = domainRowMap[currentDomain];
-      statusMsg.textContent = "Scanning " + (domainIndex + 1) + " / " + domains.length + " — " + currentDomain;
-
-      var xhr = new XMLHttpRequest();
-      activeBatchXhr = xhr;
-      xhr.open("POST", API + "/scan-single");
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.timeout = 60000;
-
-      xhr.onload = function() {
-        activeBatchXhr = null;
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            var item = JSON.parse(xhr.responseText);
-            allResults.push(item);
-            var existingRow = document.getElementById("row-" + currentRowNum);
-            if (existingRow) {
-              existingRow.outerHTML = buildRow(item, currentRowNum);
-            }
-          } catch (e) {
-            console.error("Parse error:", e);
-            var er1 = document.getElementById("row-" + currentRowNum);
-            if (er1) er1.outerHTML = errorRow(currentDomain, "Response parse error", currentRowNum);
-          }
-        } else {
-          var errMsg = "Server error " + xhr.status;
-          try {
-            var ep = JSON.parse(xhr.responseText || "{}");
-            if (ep && ep.error) errMsg = ep.error;
-          } catch (_e) {}
-          var er2 = document.getElementById("row-" + currentRowNum);
-          if (er2) er2.outerHTML = errorRow(currentDomain, errMsg, currentRowNum);
-        }
-
-        completedDomains++;
-        setProgress((completedDomains / domains.length) * 100);
-        setDomainProgress(completedDomains, totalDomains);
-        updateStats();
-        domainIndex++;
-        processNextDomain();
-      };
-
-      xhr.onerror = function() {
-        activeBatchXhr = null;
-        var er = document.getElementById("row-" + currentRowNum);
-        if (er) er.outerHTML = errorRow(currentDomain, "Network error", currentRowNum);
-        completedDomains++;
-        setProgress((completedDomains / domains.length) * 100);
-        setDomainProgress(completedDomains, totalDomains);
-        updateStats();
-        domainIndex++;
-        processNextDomain();
-      };
-
-      xhr.ontimeout = function() {
-        activeBatchXhr = null;
-        var er = document.getElementById("row-" + currentRowNum);
-        if (er) er.outerHTML = errorRow(currentDomain, "Timeout — server took too long", currentRowNum);
-        completedDomains++;
-        setProgress((completedDomains / domains.length) * 100);
-        setDomainProgress(completedDomains, totalDomains);
-        updateStats();
-        domainIndex++;
-        processNextDomain();
-      };
-
-      xhr.send(JSON.stringify({ domain: currentDomain }));
-    }
-
-    // ---- Health check with auto-retry for sleeping Render server ----
-    var MAX_HEALTH_RETRIES = 3;
-    var RETRY_DELAY = 10; // seconds between retries
-    var healthAttempt = 0;
-
-    function cleanupOnFail(msg) {
-      // Clear all stuck scanning rows
-      tbody.innerHTML = "";
-      allResults = [];
-      completedDomains = 0;
-      statusMsg.textContent = msg;
-      statusMsg.style.color = "var(--red)";
-      stopTimers();
-      setLoadingState(false);
-      btnStop.style.display = "none";
-      progressWrap.classList.remove("visible");
-      scanMeta.classList.remove("visible");
-    }
-
-    function retryCountdown(secondsLeft, callback) {
-      if (stopped) { cleanupOnFail("Stopped."); return; }
-      if (secondsLeft <= 0) { callback(); return; }
-      statusMsg.textContent = "Server is waking up... retrying in " + secondsLeft + "s (attempt " + (healthAttempt + 1) + "/" + MAX_HEALTH_RETRIES + ")";
-      statusMsg.style.color = "var(--yellow)";
-      setTimeout(function() { retryCountdown(secondsLeft - 1, callback); }, 1000);
-    }
-
-    function tryHealthCheck() {
-      if (stopped) { cleanupOnFail("Stopped."); return; }
-      healthAttempt++;
-
-      statusMsg.textContent = "Waking server... attempt " + healthAttempt + "/" + MAX_HEALTH_RETRIES;
-      statusMsg.style.color = "var(--text-muted)";
-
-      var health = new XMLHttpRequest();
-      activeHealthXhr = health;
-      health.open("GET", API + "/health");
-      health.timeout = 90000;
-
-      health.onload = function() {
-        activeHealthXhr = null;
-        if (health.status >= 200 && health.status < 300) {
-          setProgress(Math.max(progress, 2));
-          statusMsg.textContent = "Server ready! Scanning domains...";
-          statusMsg.style.color = "var(--text-muted)";
-          processNextDomain();
-        } else if (healthAttempt < MAX_HEALTH_RETRIES) {
-          retryCountdown(RETRY_DELAY, tryHealthCheck);
-        } else {
-          cleanupOnFail("Server returned error " + health.status + " after " + MAX_HEALTH_RETRIES + " attempts. Try again.");
-        }
-      };
-
-      health.onerror = function() {
-        activeHealthXhr = null;
-        if (healthAttempt < MAX_HEALTH_RETRIES) {
-          retryCountdown(RETRY_DELAY, tryHealthCheck);
-        } else {
-          cleanupOnFail("Cannot reach server after " + MAX_HEALTH_RETRIES + " attempts. It may be sleeping — try again in 60s.");
-        }
-      };
-
-      health.ontimeout = function() {
-        activeHealthXhr = null;
-        if (healthAttempt < MAX_HEALTH_RETRIES) {
-          retryCountdown(RETRY_DELAY, tryHealthCheck);
-        } else {
-          cleanupOnFail("Server took too long after " + MAX_HEALTH_RETRIES + " attempts. Try again.");
-        }
-      };
-
-      health.send();
-    }
-
-    tryHealthCheck();
-  });
-
-  // Stop button
-  btnStop.addEventListener("click", function() {
-    stopped = true;
-    if (activeHealthXhr) {
-      activeHealthXhr.abort();
-      activeHealthXhr = null;
-    }
-    if (activeBatchXhr) {
-      activeBatchXhr.abort();
-      activeBatchXhr = null;
-    }
-    btnStop.style.display = "none";
-    statusMsg.textContent = "Stopping after current domain...";
-    statusMsg.style.color = "var(--yellow)";
-  });
-
-})();
+function exportBulkCSV(){
+  if(!bulkData?.length){showErr('No bulk results');return}
+  let csv=cr(['Domain','Status','Valid','Title','HTTP Code','Word Count','Confidence','Redirect Target','Flags','Remarks']);
+  bulkData.forEach(r=>csv+=cr([r.domain,fmtS(r.overallStatus),r.isGenuinelyValid?'TRUE':'FALSE',r.title||'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; '),r.reasons?.[0]||r.error||'']));
+  dl('bulk-analysis-'+today+'.csv',csv);
+}
+function exportBizCSV(){
+  if(!bizData?.length){showErr('No business results');return}
+  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Remarks','Reasons','Meta Description']);
+  bizData.forEach(r=>{const s=r.socials||{};const a=r.address||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.domainAge?.ageFormatted||'',r.reasons?.[0]||r.error||'',r.metaDescription||''])});
+  dl('business-info-'+today+'.csv',csv);
+}
+function exportCombinedCSV(){
+  if(!bizData?.length&&!bulkData?.length){showErr('No data');return}
+  const map={};
+  if(bulkData)bulkData.forEach(r=>map[r.domain]={...map[r.domain],...r,_b:1});
+  if(bizData)bizData.forEach(r=>map[r.domain]={...map[r.domain],...r,_z:1});
+  const all=Object.values(map);
+  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Domain Age','Remarks','Reasons','Meta Description','Valid','HTTP Code','Word Count','Confidence','Redirect Target','Flags']);
+  all.forEach(r=>{const s=r.socials||{};const a=r.address||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||r.overallStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.domainAge?.ageFormatted||'',r.reasons?.[0]||r.error||'','',r.metaDescription||'',r._b?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; ')])});
+  dl('combined-'+today+'.csv',csv);
+}
 </script>
-
 </body>
 </html>
