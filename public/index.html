@@ -337,6 +337,7 @@
     <table>
       <thead>
         <tr>
+          <th>#</th>
           <th>Domain</th>
           <th>Status</th>
           <th>Country</th>
@@ -358,7 +359,7 @@
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="17" class="empty">Enter domains and click Scan to begin</td></tr>
+        <tr><td colspan="19" class="empty">Enter domains and click Scan to begin</td></tr>
       </tbody>
     </table>
   </div>
@@ -370,7 +371,6 @@
   // ---- CONFIG ----
   var API = ""; // Same origin — backend serves both API and frontend
   var MAX_DOMAINS = 50;
-  var BATCH_SIZE = 2; // 2 domains per batch for multi-page crawl timeout safety
 
   var stopped = false;
   var allResults = [];
@@ -541,7 +541,8 @@
 // ---- BUILD TABLE ROW ----
   function buildRow(r, num) {
     var social = r.social || {};
-    return '<tr>' +
+    return '<tr id="row-' + num + '">' +
+      '<td>' + num + '</td>' +
       '<td><strong>' + esc(r.domain) + '</strong></td>' +
       '<td>' + statusBadge(r.status) + '</td>' +
       '<td>' + esc(r.country || "") + '</td>' +
@@ -569,16 +570,17 @@
       '<td>' + num + '</td>' +
       '<td><strong>' + esc(domain) + '</strong></td>' +
       '<td>' + statusBadge("Scanning...") + '</td>' +
-      '<td colspan="15" style="color:var(--text-muted);font-style:italic;">Crawling pages...</td>' +
+      '<td colspan="16" style="color:var(--text-muted);font-style:italic;">Crawling pages...</td>' +
       '</tr>';
   }
 
   // ---- ERROR ROW ----
   function errorRow(domain, error, num) {
-    return '<tr>' +
+    return '<tr id="row-' + num + '">' +
+      '<td>' + num + '</td>' +
       '<td><strong>' + esc(domain) + '</strong></td>' +
       '<td><span class="badge badge-error">ERROR</span></td>' +
-      '<td colspan="14">—</td>' +
+      '<td colspan="15">—</td>' +
       '<td>' + esc(error) + '</td>' +
       '</tr>';
   }
@@ -619,13 +621,14 @@
       return;
     }
 
-    var headers = ["Domain","Status","Country","Business Name","Street","City","State","Zip","Phone","Email","Domain age","Facebook","Instagram","LinkedIn","GMB","Signals","Pages Crawled","Reason"];
+    var headers = ["#","Domain","Status","Country","Business Name","Street","City","State","Zip","Phone","Email","Domain age","Facebook","Instagram","LinkedIn","GMB","Signals","Pages Crawled","Reason"];
     var rows = [headers.join(",")];
 
     for (var i = 0; i < allResults.length; i++) {
       var r = allResults[i];
       var social = r.social || {};
       var row = [
+        i + 1,
         csvSafe(r.domain),
         csvSafe(r.status),
         csvSafe(r.country),
@@ -697,23 +700,16 @@
     btnStop.style.display = "inline-block";
 
     // Add scanning placeholders
-    var rowNum = 0;
     for (var i = 0; i < domains.length; i++) {
-      rowNum++;
+      var rowNum = i + 1;
       domainRowMap[domains[i]] = rowNum;
       tbody.innerHTML += scanningRow(domains[i], rowNum);
     }
 
-    // Chunk domains into batches of BATCH_SIZE
-    var chunks = [];
-    for (var j = 0; j < domains.length; j += BATCH_SIZE) {
-      chunks.push(domains.slice(j, j + BATCH_SIZE));
-    }
+    var domainIndex = 0;
 
-    var chunkIndex = 0;
-   
-    function processNextChunk() {
-      if (stopped || chunkIndex >= chunks.length) {
+    function processNextDomain() {
+      if (stopped || domainIndex >= domains.length) {
         // Done
         stopTimers();
         setLoadingState(false);
@@ -734,48 +730,33 @@
         return;
       }
 
-      var chunk = chunks[chunkIndex];
-      statusMsg.textContent = "Analyzing domains... batch " + (chunkIndex + 1) + "/" + chunks.length;
+      var currentDomain = domains[domainIndex];
+      var currentRow = domainRowMap[currentDomain];
+      statusMsg.textContent = "Scanning " + (domainIndex + 1) + " / " + domains.length + " — " + currentDomain;
 
       var xhr = new XMLHttpRequest();
       activeBatchXhr = xhr;
-      xhr.open("POST", API + "/batch-scan");
+      xhr.open("POST", API + "/scan-single");
       xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.timeout = 120000; // 2 min timeout per batch (multi-page crawl is slow)
+      xhr.timeout = 60000;
 
       xhr.onload = function() {
         activeBatchXhr = null;
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
-            var results = JSON.parse(xhr.responseText);
-            for (var k = 0; k < results.length; k++) {
-              var item = results[k] || {};
-              var normalizedDomain = String(item.domain || "").trim().toLowerCase();
-              var rowIndex = domainRowMap[normalizedDomain];
-              if (!rowIndex) {
-                completedDomains++;
-                rowIndex = completedDomains;
-              }
-              allResults.push(item);
+            var item = JSON.parse(xhr.responseText);
+            allResults.push(item);
 
-              // Replace scanning row with real result
-              var existingRow = document.getElementById("row-" + rowIndex);
-              if (existingRow) {
-                existingRow.outerHTML = buildRow(item, rowIndex);
-              }
+            var existingRow = document.getElementById("row-" + currentRow);
+            if (existingRow) {
+              existingRow.outerHTML = buildRow(item, currentRow);
             }
-            completedDomains = allResults.length;
-            setDomainProgress(completedDomains, totalDomains);
           } catch (e) {
             console.error("Parse error:", e);
-            for (var m = 0; m < chunk.length; m++) {
-              completedDomains++;
-              var existing = document.getElementById("row-" + completedDomains);
-              if (existing) {
-                existing.outerHTML = errorRow(chunk[m], "Response parse error", completedDomains);
-              }
+            var existingRow2 = document.getElementById("row-" + currentRow);
+            if (existingRow2) {
+              existingRow2.outerHTML = errorRow(currentDomain, "Response parse error", currentRow);
             }
-            setDomainProgress(completedDomains, totalDomains);
           }
         } else {
           var serverErrorMessage = "Server error " + xhr.status;
@@ -784,63 +765,50 @@
             if (errorPayload && errorPayload.error) {
               serverErrorMessage = errorPayload.error;
             }
-          } catch (_err) {
-            // ignore malformed error payload
-          }
+          } catch (_err) {}
 
-          for (var p = 0; p < chunk.length; p++) {
-            completedDomains++;
-            var chunkDomain = chunk[p];
-            var rowId = domainRowMap[chunkDomain] || completedDomains;
-            var exist = document.getElementById("row-" + rowId);
-            if (exist) {
-              exist.outerHTML = errorRow(chunkDomain, serverErrorMessage, rowId);
-            }
+          var existingRow3 = document.getElementById("row-" + currentRow);
+          if (existingRow3) {
+            existingRow3.outerHTML = errorRow(currentDomain, serverErrorMessage, currentRow);
           }
-          setDomainProgress(completedDomains, totalDomains);
         }
-          
+
+        completedDomains++;
         var pct = (completedDomains / domains.length) * 100;
         setProgress(pct);
+        setDomainProgress(completedDomains, totalDomains);
         updateStats();
-        chunkIndex++;
-        processNextChunk();
+        domainIndex++;
+        processNextDomain();
       };
 
       xhr.onerror = function() {
         activeBatchXhr = null;
-        for (var q = 0; q < chunk.length; q++) {
-          completedDomains++;
-          var chunkDomain = chunk[q];
-          var rowId = domainRowMap[chunkDomain] || completedDomains;
-          var ex = document.getElementById("row-" + rowId);
-          if (ex) {
-            ex.outerHTML = errorRow(chunkDomain, "Network error", rowId);
-          }
+        var existingRow = document.getElementById("row-" + currentRow);
+        if (existingRow) {
+          existingRow.outerHTML = errorRow(currentDomain, "Network error", currentRow);
         }
-        setProgress(10 + (completedDomains / domains.length) * 90);
-        chunkIndex++;
-        processNextChunk();
+        completedDomains++;
+        setProgress((completedDomains / domains.length) * 100);
+        setDomainProgress(completedDomains, totalDomains);
+        domainIndex++;
+        processNextDomain();
       };
 
       xhr.ontimeout = function() {
         activeBatchXhr = null;
-        for (var q = 0; q < chunk.length; q++) {
-          completedDomains++;
-          var chunkDomain = chunk[q];
-          var rowId = domainRowMap[chunkDomain] || completedDomains;
-          var ex = document.getElementById("row-" + rowId);
-          if (ex) {
-            ex.outerHTML = errorRow(chunkDomain, "Timeout — server took too long", rowId);
-          }
+        var existingRow = document.getElementById("row-" + currentRow);
+        if (existingRow) {
+          existingRow.outerHTML = errorRow(currentDomain, "Timeout — server took too long", currentRow);
         }
+        completedDomains++;
         setDomainProgress(completedDomains, totalDomains);
         setProgress((completedDomains / domains.length) * 100);
-        chunkIndex++;
-        processNextChunk();
+        domainIndex++;
+        processNextDomain();
       };
 
-      xhr.send(JSON.stringify({ domains: chunk }));
+      xhr.send(JSON.stringify({ domain: currentDomain }));
     }
 
     // Health check first, then start scanning
@@ -854,7 +822,7 @@
       if (health.status >= 200 && health.status < 300) {
         setProgress(Math.max(progress, 2));
         statusMsg.textContent = "Analyzing domains...";
-        processNextChunk();
+        processNextDomain();
       } else {
         statusMsg.textContent = "Server error: " + health.status + ". Try again.";
         statusMsg.style.color = "var(--red)";
@@ -903,7 +871,7 @@
       activeBatchXhr = null;
     }
     btnStop.style.display = "none";
-    statusMsg.textContent = "Stopping after current batch...";
+    statusMsg.textContent = "Stopping after current domain...";
     statusMsg.style.color = "var(--yellow)";
   });
 
