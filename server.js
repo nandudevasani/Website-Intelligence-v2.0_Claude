@@ -1291,7 +1291,9 @@ app.post("/bulk-analyze", scanRateLimiter, async (req, res) => {
 // ============================================================
 // START SERVER
 // ============================================================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Website Intelligence Scanner v2.0 running on port ${PORT}`);
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
+
+app.listen(PORT, HOST, () => {
+  console.log(`Website Intelligence Scanner v2.0 running on http://${HOST}:${PORT}`);
 });
