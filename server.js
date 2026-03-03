@@ -2,6 +2,11 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import whois from "whois-json";
+import dns from "dns/promises";
+import net from "net";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -9,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
@@ -19,7 +25,21 @@ app.use(express.static(__dirname));
 // CONFIGURATION
 // ============================================================
 const FETCH_TIMEOUT = 8000; // 8 seconds per page
+const DOMAIN_SCAN_TIMEOUT = 25000; // 25 seconds per domain scan
+const WHOIS_TIMEOUT = 8000; // 8 seconds for whois
+const MAX_HTML_SIZE = 2 * 1024 * 1024; // 2MB
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const MAX_BATCH_SIZE = 60;
+const BATCH_CONCURRENCY = 5;
+
+const scanRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const DOMAIN_REGEX = /^(?!-)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
 // Sub-pages to always crawl (in addition to homepage)
 const SUB_PAGES = [
@@ -30,6 +50,7 @@ const SUB_PAGES = [
   "/privacy-policy",
   "/privacy",
 ];
+const INTERNAL_LINK_KEYWORDS = ["contact", "about", "location", "team", "company"];
 
 // Known parking/registrar domains
 const PARKING_DOMAINS = [
@@ -80,11 +101,131 @@ const TITLE_STRIP_PATTERNS = [
   /\s*[\|\-–—]\s*$/,
   /^\s*[\|\-–—]\s*/,
 ];
+function logEvent(event, payload = {}) {
+  console.log(JSON.stringify({ event, ts: new Date().toISOString(), ...payload }));
+}
+
+function normalizeDomain(input) {
+  if (typeof input !== "string") return "";
+  let domain = input.trim().toLowerCase();
+  domain = domain.replace(/^https?:\/\//i, "");
+  domain = domain.split(/[/?#]/)[0];
+  domain = domain.replace(/\/+$/, "");
+  return domain;
+}
+
+function isPrivateOrInternalIp(ip) {
+  if (!ip) return true;
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    const [a, b] = parts;
+    if (ip === "127.0.0.1" || ip === "0.0.0.0") return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+
+  if (net.isIPv6(ip)) {
+    const lowered = ip.toLowerCase();
+    if (lowered === "::1" || lowered === "0:0:0:0:0:0:0:1") return true;
+    if (lowered.startsWith("fc") || lowered.startsWith("fd")) return true; // unique local
+    if (lowered.startsWith("fe80:")) return true; // link-local
+    return false;
+  }
+
+  return true;
+}
+
+async function validateAndResolveDomain(rawDomain) {
+  const domain = normalizeDomain(rawDomain);
+
+  if (!domain) {
+    return { ok: false, domain: "", error: "Invalid domain format" };
+  }
+  if (domain === "localhost" || domain.endsWith(".localhost")) {
+    return { ok: false, domain, error: "Blocked domain" };
+  }
+  if (domain.includes(":")) {
+    return { ok: false, domain, error: "Ports are not allowed" };
+  }
+  if (net.isIP(domain)) {
+    return { ok: false, domain, error: "IP addresses are not allowed" };
+  }
+  if (!DOMAIN_REGEX.test(domain)) {
+    return { ok: false, domain, error: "Invalid domain format" };
+  }
+
+  try {
+    const records = await dns.lookup(domain, { all: true, verbatim: true });
+    if (!records || records.length === 0) {
+      return { ok: false, domain, error: "DNS Not Found" };
+    }
+
+    const blocked = records.some((record) => isPrivateOrInternalIp(record.address));
+    if (blocked) {
+      return { ok: false, domain, error: "Blocked private/internal IP" };
+    }
+
+    return { ok: true, domain, resolvedIps: records.map((r) => r.address) };
+  } catch (_err) {
+    return { ok: false, domain, error: "DNS Not Found" };
+  }
+}
+
+function countKeywordMatches(text, keywords) {
+  return keywords.reduce((count, kw) => (text.includes(kw) ? count + 1 : count), 0);
+}
+
+function formatDomainAgeFromDate(createdDateInput) {
+  if (!createdDateInput) return "Unknown";
+
+  const createdDate = new Date(createdDateInput);
+  if (Number.isNaN(createdDate.getTime())) return "Unknown";
+
+  const now = new Date();
+  if (createdDate > now) return "0M";
+
+  let months = (now.getFullYear() - createdDate.getFullYear()) * 12;
+  months += now.getMonth() - createdDate.getMonth();
+
+  if (now.getDate() < createdDate.getDate()) {
+    months -= 1;
+  }
+
+  if (months < 0) months = 0;
+
+  const years = Math.floor(months / 12);
+  const remMonths = months % 12;
+
+  if (years > 0) return `${years}Y ${remMonths}M`;
+  return `${remMonths}M`;
+}
+
+async function resolveDomainAge(domain) {
+  try {
+    const result = await Promise.race([
+      whois(domain),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("WHOIS timeout")), WHOIS_TIMEOUT)),
+    ]);
+
+    const created = result?.creationDate || result?.created || result?.registered;
+    if (Array.isArray(created)) {
+      const firstValid = created.find(Boolean);
+      return formatDomainAgeFromDate(firstValid);
+    }
+
+    return formatDomainAgeFromDate(created);
+  } catch (_e) {
+    return "Unknown";
+  }
+}
 
 // ============================================================
 // UTILITY: Fetch a single page
 // ============================================================
-async function fetchPage(url) {
+async function fetchPage(url, signal) {
   try {
     const response = await axios.get(url, {
       timeout: FETCH_TIMEOUT,
@@ -92,6 +233,9 @@ async function fetchPage(url) {
       validateStatus: () => true,
       headers: { "User-Agent": USER_AGENT },
       responseType: "text",
+      maxContentLength: MAX_HTML_SIZE,
+      maxBodyLength: MAX_HTML_SIZE,
+      signal,
     });
 
     const finalUrl = response.request?.res?.responseUrl || response.config?.url || url;
@@ -103,16 +247,36 @@ async function fetchPage(url) {
       finalUrl: finalUrl,
       headers: response.headers,
       error: null,
+      tooLarge: false,
+      timedOut: false,
+      aborted: false,
     };
   } catch (err) {
     let errorType = "Unknown Error";
+    let tooLarge = false;
+    let timedOut = false;
+    let aborted = false;
+
     if (err.code === "ENOTFOUND") errorType = "DNS Not Found";
     else if (err.code === "ECONNREFUSED") errorType = "Connection Refused";
+    else if (err.code === "ETIMEDOUT" || err.code === "ECONNABORTED") {
+      errorType = "Timeout";
+      timedOut = true;
+    } else if (err.code === "ERR_CANCELED") {
+      errorType = "Aborted";
+      aborted = true;
+    } else if (err.code === "ERR_TLS_CERT_ALTNAME_INVALID") errorType = "SSL Certificate Invalid";
     else if (err.code === "ETIMEDOUT" || err.code === "ECONNABORTED") errorType = "Timeout";
     else if (err.code === "ERR_TLS_CERT_ALTNAME_INVALID") errorType = "SSL Certificate Invalid";
     else if (err.code === "CERT_HAS_EXPIRED") errorType = "SSL Certificate Expired";
     else if (err.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") errorType = "SSL Verification Failed";
     else if (err.code === "ERR_FR_TOO_MANY_REDIRECTS") errorType = "Too Many Redirects";
+    else if (String(err.message || "").toLowerCase().includes("maxcontentlength") || String(err.message || "").toLowerCase().includes("maxbodylength")) {
+      errorType = "Page Too Large";
+      tooLarge = true;
+    } else if (err.message) errorType = err.message.substring(0, 80);
+
+    logEvent("fetch_error", { url, error: errorType });
     else if (err.message) errorType = err.message.substring(0, 80);
 
     return {
@@ -122,8 +286,80 @@ async function fetchPage(url) {
       finalUrl: url,
       headers: {},
       error: errorType,
+      tooLarge,
+      timedOut,
+      aborted,
     };
   }
+}
+async function fetchRobotsDisallowRules(baseUrl, signal) {
+  try {
+    const robots = await fetchPage(`${baseUrl}/robots.txt`, signal);
+    if (!robots.ok || !robots.html) return [];
+
+    const lines = robots.html.split(/\r?\n/);
+    const disallowed = [];
+    let userAgentApplies = false;
+
+    for (const line of lines) {
+      const clean = line.split("#")[0].trim();
+      if (!clean) continue;
+      const parts = clean.split(":");
+      if (parts.length < 2) continue;
+      const key = parts[0].trim().toLowerCase();
+      const value = parts.slice(1).join(":").trim();
+
+      if (key === "user-agent") {
+        userAgentApplies = value === "*";
+      } else if (key === "disallow" && userAgentApplies && value) {
+        disallowed.push(value);
+      }
+    }
+
+    return disallowed;
+  } catch (_e) {
+    return [];
+  }
+}
+
+function isPathDisallowed(pathname, disallowedRules) {
+  if (!pathname || !disallowedRules.length) return false;
+  return disallowedRules.some((rule) => {
+    if (!rule || rule === "/") return rule === "/";
+    return pathname.startsWith(rule);
+  });
+}
+
+function discoverInternalLinks(html, baseUrl, domain) {
+  const $ = cheerio.load(html || "");
+  const discovered = [];
+
+  $("a[href]").each((_, el) => {
+    if (discovered.length >= 5) return;
+
+    const href = ($(el).attr("href") || "").trim();
+    if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) return;
+
+    try {
+      const url = new URL(href, `${baseUrl}/`);
+      const normalizedHost = url.hostname.replace(/^www\./, "").toLowerCase();
+      if (normalizedHost !== domain && normalizedHost !== `www.${domain}`) return;
+
+      const pathLower = url.pathname.toLowerCase();
+      const matched = INTERNAL_LINK_KEYWORDS.some((kw) => pathLower.includes(kw));
+      if (!matched) return;
+
+      const normalizedPath = url.pathname.endsWith("/") && url.pathname !== "/"
+        ? url.pathname.slice(0, -1)
+        : url.pathname;
+
+      discovered.push(normalizedPath || "/");
+    } catch (_e) {
+      // skip invalid URLs
+    }
+  });
+
+  return [...new Set(discovered)].slice(0, 5);
 }
 
 // ============================================================
@@ -335,7 +571,7 @@ function formatPhone(raw) {
 // ============================================================
 // EXTRACTION: Email
 // ============================================================
-function extractEmail(html, domain) {
+function extractEmail(html) {
   const $ = cheerio.load(html);
   let email = "";
 
@@ -393,8 +629,7 @@ function extractEmail(html, domain) {
 function extractSocial(html) {
   const $ = cheerio.load(html);
   const social = { facebook: "", instagram: "", linkedin: "", gmb: "" };
-  const allHtml = $.html().toLowerCase();
-
+  
   $("a[href]").each((_, el) => {
     const href = ($(el).attr("href") || "").trim();
     const hrefLower = href.toLowerCase();
@@ -541,6 +776,9 @@ function parseAddressFromText(text) {
 // STATUS CLASSIFICATION: Layer 1 — HTTP/Network Level
 // ============================================================
 function classifyLayer1(fetchResult) {
+   if (fetchResult.tooLarge) {
+    return { status: "Error", reason: "Page Too Large" };
+  }
   if (!fetchResult.ok) {
     return { status: "Error", reason: fetchResult.error };
   }
@@ -586,11 +824,18 @@ function classifyLayer2(html) {
     }
   }
 
-  // Check for parking pages
-  for (const kw of PARKING_KEYWORDS) {
-    if (htmlLower.includes(kw)) {
-      return { status: "Parked", reason: "Parked Domain" };
-    }
+  const ignoreKeywordClassification = bodyLength > 8000;
+  const parkingCount = countKeywordMatches(htmlLower, PARKING_KEYWORDS);
+  const comingSoonCount = countKeywordMatches(htmlLower, COMING_SOON_KEYWORDS);
+  const constructionCount = countKeywordMatches(htmlLower, UNDER_CONSTRUCTION_KEYWORDS);
+
+  // Check for parking pages (refined)
+  if (!ignoreKeywordClassification && parkingCount >= 2 && bodyLength < 4000) {
+  // Check for "domain for sale" specifically (refined)
+  const hasForSale = htmlLower.includes("domain is for sale") || htmlLower.includes("buy this domain") || htmlLower.includes("domain for sale");
+  if (!ignoreKeywordClassification && hasForSale && bodyLength < 4000) {
+    return { status: "Parked", reason: "Parked Domain" };
+   }
   }
 
   // Check for "domain for sale" specifically
@@ -598,23 +843,14 @@ function classifyLayer2(html) {
     return { status: "Parked", reason: "Domain For Sale" };
   }
 
-  // Check for under construction
-  for (const kw of UNDER_CONSTRUCTION_KEYWORDS) {
-    if (htmlLower.includes(kw)) {
-      // Only classify if page is relatively thin (real sites might mention "under construction" in a blog post)
-      if (bodyLength < 5000) {
-        return { status: "Under Construction", reason: "Under Construction" };
-      }
-    }
+  // Check for under construction (refined)
+  if (!ignoreKeywordClassification && constructionCount >= 2 && bodyLength < 4000) {
+    return { status: "Under Construction", reason: "Under Construction" };
   }
 
-  // Check for coming soon
-  for (const kw of COMING_SOON_KEYWORDS) {
-    if (htmlLower.includes(kw)) {
-      if (bodyLength < 5000) {
-        return { status: "Coming Soon", reason: "Coming Soon" };
-      }
-    }
+   // Check for coming soon (refined)
+  if (!ignoreKeywordClassification && comingSoonCount >= 2 && bodyLength < 4000) {
+    return { status: "Coming Soon", reason: "Coming Soon" };
   }
 
   // Check for empty/minimal content
@@ -639,18 +875,32 @@ function classifyLayer2(html) {
 // STATUS CLASSIFICATION: Layer 3 — Business Signal Detection
 // ============================================================
 function classifyLayer3(signals) {
-  const { hasPhone, hasEmail, hasSocial, hasAddress } = signals;
-  const signalCount = [hasPhone, hasEmail, hasSocial, hasAddress].filter(Boolean).length;
+ const {
+    hasPhone,
+    hasEmail,
+    hasSocial,
+    hasAddress,
+    hasGoogleMaps,
+  } = signals;
 
-  if (signalCount >= 2) {
-    return { status: "Active", reason: "Verified Business (Strong)" };
+  const confidenceScore =
+    (hasPhone ? 3 : 0) +
+    (hasEmail ? 3 : 0) +
+    (hasAddress ? 3 : 0) +
+    (hasSocial ? 2 : 0) +
+    (hasGoogleMaps ? 3 : 0);
+
+  if (confidenceScore >= 7) {
+    return { status: "Active", reason: "Active (Strong)", confidenceScore };
   }
-  if (signalCount === 1) {
-    return { status: "Active", reason: "Verified Business" };
+  if (confidenceScore >= 4) {
+    return { status: "Active", reason: "Active", confidenceScore };
+  }
+  if (confidenceScore >= 1) {
+    return { status: "Weak Business Signal", reason: "Weak Business Signal", confidenceScore };
   }
 
-  // No contact signals at all
-  return { status: "Shell", reason: "No Contact Information Found" };
+  return { status: "Shell", reason: "Shell", confidenceScore };
 }
 
 // ============================================================
@@ -669,48 +919,78 @@ function buildSignalsSummary(phone, email, social, address) {
 
   return parts.join(" | ");
 }
+async function processWithConcurrency(items, concurrency, worker) {
+  const results = [];
+  let index = 0;
+
+  async function runNext() {
+    while (index < items.length) {
+      const currentIndex = index++;
+      const value = await worker(items[currentIndex], currentIndex);
+      if (value) results.push(value);
+    }
+  }
+
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, () => runNext());
+  await Promise.all(runners);
+  return results;
+}
 
 // ============================================================
 // MAIN: Scan a single domain (multi-page crawl)
 // ============================================================
-async function scanDomain(domain) {
-  console.log(`\n[SCAN] Starting: ${domain}`);
-
-  // Clean up domain
-  domain = domain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
-  if (!domain) return null;
-
-  const baseUrl = `https://${domain}`;
-
-  // ---- Step 1: Fetch homepage ----
-  console.log(`  [FETCH] Homepage: ${baseUrl}`);
-  const homepage = await fetchPage(baseUrl);
-
-  // If HTTPS fails with SSL error, try HTTP
-  let homepageResult = homepage;
-  if (!homepage.ok && (homepage.error.includes("SSL") || homepage.error.includes("certificate"))) {
-    console.log(`  [RETRY] Trying HTTP for ${domain}`);
-    homepageResult = await fetchPage(`http://${domain}`);
+async function scanDomain(inputDomain) {
+  const validated = await validateAndResolveDomain(inputDomain);
+  if (!validated.ok) {
+    return {
+      domain: validated.domain || normalizeDomain(inputDomain),
+      status: "Error",
+      statusCode: 0,
+      reason: validated.error,
+      name: "",
+      phone: "",
+      email: "",
+      street: "",
+      city: "",
+      state: "",
+      zip: "",
+      social: { facebook: "", instagram: "", linkedin: "", gmb: "" },
+      signals: "Phone ✗ | Email ✗ | Social ✗ | Address ✗",
+      pagesCrawled: "",
+      confidenceScore: 0,
+      domainAge: "Unknown",
+    };
   }
 
-  // ---- Step 2: Layer 1 classification (HTTP level) ----
-  const layer1 = classifyLayer1(homepageResult);
+  const domain = validated.domain;
+  logEvent("scan_start", { domain });
+ const scanController = new AbortController();
+  let scanTimedOut = false;
+  const timeoutId = setTimeout(() => {
+    scanTimedOut = true;
+    scanController.abort();
+  }, DOMAIN_SCAN_TIMEOUT);
 
-  // ---- Step 3: Always crawl sub-pages (user chose thorough mode) ----
-  const crawledPages = [{ url: baseUrl, html: homepageResult.html, code: homepageResult.statusCode }];
-  const pagesCrawled = ["homepage"];
+  try {
+    const baseUrl = `https://${domain}`;
+    
+  // ---- Step 1: Fetch homepage + whois in parallel ----
+    const whoisPromise = resolveDomainAge(domain);
+    const homepage = await fetchPage(baseUrl, scanController.signal);
 
-  // Crawl sub-pages in parallel
-  const subPagePromises = SUB_PAGES.map(async (path) => {
-    const subUrl = `${baseUrl}${path}`;
-    try {
-      const result = await fetchPage(subUrl);
-      if (result.ok && result.statusCode >= 200 && result.statusCode < 400 && result.html.length > 200) {
-        return { url: subUrl, html: result.html, code: result.statusCode, path: path };
-      }
-    } catch (e) { /* skip */ }
-    return null;
-  });
+  // If HTTPS fails with SSL error, try HTTP
+    let homepageResult = homepage;
+    if (!homepage.ok && (homepage.error.includes("SSL") || homepage.error.includes("certificate"))) {
+      homepageResult = await fetchPage(`http://${domain}`, scanController.signal);
+    }
+    const domainAge = await whoisPromise;
+    
+   // ---- Step 2: Layer 1 classification (HTTP level) ----
+    const layer1 = classifyLayer1(homepageResult);
+
+    // ---- Step 3: Always crawl sub-pages (user chose thorough mode) ----
+    const crawledPages = [{ url: baseUrl, html: homepageResult.html, code: homepageResult.statusCode }];
+    const pagesCrawled = ["homepage"];;
 
   const subResults = await Promise.all(subPagePromises);
   for (const sub of subResults) {
@@ -720,117 +1000,150 @@ async function scanDomain(domain) {
     }
   }
 
-  console.log(`  [CRAWL] Pages found: ${pagesCrawled.join(", ")}`);
+      if (!scanTimedOut) {
+      const robotsDisallow = await fetchRobotsDisallowRules(baseUrl, scanController.signal);
+      const discoveredPaths = discoverInternalLinks(homepageResult.html, baseUrl, domain);
+      const allPaths = [...new Set([...SUB_PAGES, ...discoveredPaths])];
+      const allowedPaths = allPaths.filter((pathPart) => !isPathDisallowed(pathPart, robotsDisallow));
 
-  // ---- Step 4: Extract data from ALL crawled pages ----
-  let bestName = "";
-  let bestPhone = "";
-  let bestEmail = "";
-  let bestAddress = { street: "", city: "", state: "", zip: "" };
-  let bestSocial = { facebook: "", instagram: "", linkedin: "", gmb: "" };
+        // Crawl sub-pages in parallel
+      const subPagePromises = allowedPaths.map(async (pathPart) => {
+        if (scanTimedOut) return null;
 
-  for (const page of crawledPages) {
-    if (!page.html) continue;
+ const subUrl = `${baseUrl}${pathPart}`;
+        const result = await fetchPage(subUrl, scanController.signal);
+        if (result.ok && result.statusCode >= 200 && result.statusCode < 400 && result.html.length > 200) {
+          return { url: subUrl, html: result.html, code: result.statusCode, path: pathPart };
+        }
+        return null;
+      });
 
-    // Name: prefer homepage extraction
-    if (!bestName) {
-      bestName = extractBusinessName(page.html, domain);
-    }
-
-    // Phone: take first found
-    if (!bestPhone) {
-      bestPhone = extractPhone(page.html);
-    }
-
-    // Email: take first found
-    if (!bestEmail) {
-      bestEmail = extractEmail(page.html, domain);
-    }
-
-    // Address: take first complete one
-    if (!bestAddress.street && !bestAddress.city) {
-      const addr = extractAddressFromPage(page.html);
-      if (addr.street || addr.city) {
-        bestAddress = addr;
+      const subResults = await Promise.all(subPagePromises);
+      for (const sub of subResults) {
+        if (sub) {
+          crawledPages.push(sub);
+          pagesCrawled.push(sub.path);
+        }
       }
     }
 
-    // Social: merge from all pages
-    const pageSocial = extractSocial(page.html);
-    if (!bestSocial.facebook && pageSocial.facebook) bestSocial.facebook = pageSocial.facebook;
-    if (!bestSocial.instagram && pageSocial.instagram) bestSocial.instagram = pageSocial.instagram;
-    if (!bestSocial.linkedin && pageSocial.linkedin) bestSocial.linkedin = pageSocial.linkedin;
-    if (!bestSocial.gmb && pageSocial.gmb) bestSocial.gmb = pageSocial.gmb;
-  }
+    // ---- Step 4: Extract data from ALL crawled pages ----
+    let bestName = "";
+    let bestPhone = "";
+    let bestEmail = "";
+    let bestAddress = { street: "", city: "", state: "", zip: "" };
+    let bestSocial = { facebook: "", instagram: "", linkedin: "", gmb: "" };
 
-  // ---- Step 5: Final status classification ----
-  let finalStatus, finalReason;
+    for (const page of crawledPages) {
+      if (!page.html) continue;
 
-  if (layer1) {
-    // Layer 1 caught an error — but if we found business signals on sub-pages, override!
-    const hasSomething = bestPhone || bestEmail || bestSocial.facebook || bestSocial.instagram || bestSocial.linkedin;
-    if (hasSomething && layer1.status === "Error" && layer1.reason !== "DNS Not Found" && layer1.reason !== "Connection Refused" && layer1.reason !== "Timeout") {
-      // Site has errors but sub-pages returned data — mark as Active with note
-      finalStatus = "Active";
-      finalReason = `Homepage ${layer1.reason}, but business info found on sub-pages`;
-    } else {
-      finalStatus = layer1.status;
-      finalReason = layer1.reason;
+      if (!bestName) {
+        bestName = extractBusinessName(page.html, domain);
+      }
+
+      if (!bestPhone) {
+        bestPhone = extractPhone(page.html);
+      }
+
+      if (!bestEmail) {
+        bestEmail = extractEmail(page.html);
+      }
+
+      if (!bestAddress.street && !bestAddress.city) {
+        const addr = extractAddressFromPage(page.html);
+        if (addr.street || addr.city) {
+          bestAddress = addr;
+        }
+      }
+
+      const pageSocial = extractSocial(page.html);
+      if (!bestSocial.facebook && pageSocial.facebook) bestSocial.facebook = pageSocial.facebook;
+      if (!bestSocial.instagram && pageSocial.instagram) bestSocial.instagram = pageSocial.instagram;
+      if (!bestSocial.linkedin && pageSocial.linkedin) bestSocial.linkedin = pageSocial.linkedin;
+      if (!bestSocial.gmb && pageSocial.gmb) bestSocial.gmb = pageSocial.gmb;
     }
-  } else {
-    // Layer 1 passed — check Layer 2 (content analysis on homepage)
-    const layer2 = classifyLayer2(homepageResult.html);
 
-    if (layer2) {
-      // Layer 2 found an issue — but check if business signals override it
-      const hasSomething = bestPhone || bestEmail || bestSocial.facebook || bestSocial.instagram || bestSocial.linkedin;
+    // ---- Step 5: Final status classification ----
+    let finalStatus;
+    let finalReason;
 
-      if (hasSomething && (layer2.status === "Shell" || layer2.status === "No Content")) {
+    const layer3Signals = {
+      hasPhone: !!bestPhone,
+      hasEmail: !!bestEmail,
+      hasSocial: !!(bestSocial.facebook || bestSocial.instagram || bestSocial.linkedin),
+      hasAddress: !!(bestAddress.street || bestAddress.city),
+      hasGoogleMaps: !!bestSocial.gmb,
+    };
+    const layer3 = classifyLayer3(layer3Signals);
+
+    if (layer1) {
+      const hasSomething = layer3.confidenceScore > 0;
+      if (hasSomething && layer1.status === "Error" && !["DNS Not Found", "Connection Refused", "Timeout"].includes(layer1.reason)) {
         finalStatus = "Active";
-        finalReason = "Business signals found despite thin content";
-      } else if (hasSomething && layer2.status === "Coming Soon") {
-        finalStatus = "Coming Soon";
-        finalReason = "Coming Soon (has contact info)";
+        finalReason = `Homepage ${layer1.reason}, but business info found on sub-pages`;
       } else {
-        finalStatus = layer2.status;
-        finalReason = layer2.reason;
+        finalStatus = layer1.status;
+        finalReason = layer1.reason;
       }
     } else {
-      // Layer 2 passed — use Layer 3 (business signal check)
-      const signals = {
-        hasPhone: !!bestPhone,
-        hasEmail: !!bestEmail,
-        hasSocial: !!(bestSocial.facebook || bestSocial.instagram || bestSocial.linkedin),
-        hasAddress: !!(bestAddress.street || bestAddress.city),
-      };
-      const layer3 = classifyLayer3(signals);
-      finalStatus = layer3.status;
-      finalReason = layer3.reason;
+      const layer2 = classifyLayer2(homepageResult.html);
+
+      if (layer2) {
+        const hasSomething = layer3.confidenceScore > 0;
+
+        if (hasSomething && (layer2.status === "Shell" || layer2.status === "No Content")) {
+          finalStatus = "Active";
+          finalReason = "Business signals found despite thin content";
+        } else if (hasSomething && layer2.status === "Coming Soon") {
+          finalStatus = "Coming Soon";
+          finalReason = "Coming Soon (has contact info)";
+        } else {
+          finalStatus = layer2.status;
+          finalReason = layer2.reason;
+        }
+      } else {
+        finalStatus = layer3.status;
+        finalReason = layer3.reason;
+      }
     }
+
+    if (scanTimedOut) {
+      finalReason = finalReason ? `${finalReason} | Scan Timeout` : "Scan Timeout";
+    }
+
+    const signalsSummary = buildSignalsSummary(bestPhone, bestEmail, bestSocial, bestAddress);
+
+    const result = {
+      domain,
+      status: finalStatus,
+      statusCode: homepageResult.statusCode,
+      reason: finalReason,
+      name: bestName,
+      phone: bestPhone,
+      email: bestEmail,
+      street: bestAddress.street,
+      city: bestAddress.city,
+      state: bestAddress.state,
+      zip: bestAddress.zip,
+      social: bestSocial,
+      signals: signalsSummary,
+      pagesCrawled: pagesCrawled.join(", "),
+      confidenceScore: layer3.confidenceScore,
+      domainAge,
+    };
+
+    logEvent("scan_complete", {
+      domain,
+      status: finalStatus,
+      reason: finalReason,
+      confidenceScore: layer3.confidenceScore,
+      pages: pagesCrawled.length,
+    });
+
+    return result;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  // ---- Step 6: Build signals summary ----
-  const signalsSummary = buildSignalsSummary(bestPhone, bestEmail, bestSocial, bestAddress);
-
-  const result = {
-    domain,
-    status: finalStatus,
-    statusCode: homepageResult.statusCode,
-    reason: finalReason,
-    name: bestName,
-    phone: bestPhone,
-    email: bestEmail,
-    street: bestAddress.street,
-    city: bestAddress.city,
-    state: bestAddress.state,
-    zip: bestAddress.zip,
-    social: bestSocial,
-    signals: signalsSummary,
-    pagesCrawled: pagesCrawled.join(", "),
-  };
-
-  console.log(`  [DONE] ${domain} → ${finalStatus} (${finalReason}) | Name: ${bestName.substring(0, 30)} | ${signalsSummary}`);
-  return result;
 }
 
 // ============================================================
@@ -842,8 +1155,8 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Website Intelligence Scanner v2.0" });
 });
 
-// Batch scan: 2 domains at a time (safe for Render 30s timeout with multi-page crawl)
-app.post("/batch-scan", async (req, res) => {
+// Batch scan: 5 domains in parallel, up to 60 domains total
+app.post("/batch-scan", scanRateLimiter, async (req, res) => {
   try {
     const { domains } = req.body;
 
@@ -851,26 +1164,28 @@ app.post("/batch-scan", async (req, res) => {
       return res.status(400).json({ error: "Domains array required" });
     }
 
-    const batch = domains.slice(0, 2); // Max 2 per batch
-    const results = [];
+    const batch = domains.slice(0, MAX_BATCH_SIZE);
 
-    // Scan domains in parallel (2 at a time)
-    const promises = batch.map(d => scanDomain(d));
-    const outcomes = await Promise.all(promises);
-
-    for (const r of outcomes) {
-      if (r) results.push(r);
+    const validations = await Promise.all(batch.map((d) => validateAndResolveDomain(d)));
+    const invalid = validations.filter((v) => !v.ok);
+    if (invalid.length > 0) {
+      return res.status(400).json({
+        error: "Invalid or blocked domains",
+        details: invalid.map((v) => ({ domain: v.domain, reason: v.error })),
+      });
     }
+
+    const results = await processWithConcurrency(batch, BATCH_CONCURRENCY, async (d) => scanDomain(d));
 
     res.json(results);
   } catch (err) {
-    console.error("Batch scan error:", err);
+    logEvent("fetch_error", { scope: "batch-scan", error: err.message || "Unknown" });
     res.status(500).json({ error: "Server error: " + (err.message || "Unknown") });
   }
 });
 
 // Backward-compatible full bulk endpoint
-app.post("/bulk-analyze", async (req, res) => {
+app.post("/bulk-analyze", scanRateLimiter, async (req, res) => {
   try {
     const { domains } = req.body;
 
@@ -878,17 +1193,21 @@ app.post("/bulk-analyze", async (req, res) => {
       return res.status(400).json({ error: "Domains array required" });
     }
 
-    const limited = domains.slice(0, 10);
-    const results = [];
+    const limited = domains.slice(0, MAX_BATCH_SIZE);
 
-    for (const d of limited) {
-      const r = await scanDomain(d);
-      if (r) results.push(r);
+    const validations = await Promise.all(limited.map((d) => validateAndResolveDomain(d)));
+    const invalid = validations.filter((v) => !v.ok);
+    if (invalid.length > 0) {
+      return res.status(400).json({
+        error: "Invalid or blocked domains",
+        details: invalid.map((v) => ({ domain: v.domain, reason: v.error })),
+      });
     }
 
+    const results = await processWithConcurrency(limited, BATCH_CONCURRENCY, async (d) => scanDomain(d));
     res.json(results);
   } catch (err) {
-    console.error("Bulk analyze error:", err);
+    logEvent("fetch_error", { scope: "bulk-analyze", error: err.message || "Unknown" });
     res.status(500).json({ error: "Server error: " + (err.message || "Unknown") });
   }
 });
