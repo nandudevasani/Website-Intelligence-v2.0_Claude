@@ -337,12 +337,6 @@
     <table>
       <thead>
         <tr>
-          <div class="stats-bar" id="statsBar" style="display:none;"></div>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
           <th>Domain</th>
           <th>Status</th>
           <th>Country</th>
@@ -505,7 +499,8 @@
     var cls = "badge-error";
     var label = status;
 
-  case "ACTIVE": cls = "badge-active"; break;
+    switch (status) {
+      case "ACTIVE": cls = "badge-active"; break;
       case "SHELL_SITE": cls = "badge-shell"; break;
       case "COMING_SOON": cls = "badge-coming-soon"; break;
       case "PARKED": cls = "badge-parked"; break;
@@ -543,7 +538,7 @@
     }
   }
 
-/ ---- BUILD TABLE ROW ----
+// ---- BUILD TABLE ROW ----
   function buildRow(r, num) {
     var social = r.social || {};
     return '<tr>' +
