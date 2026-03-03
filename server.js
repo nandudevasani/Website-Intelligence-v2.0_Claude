@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json());
 
@@ -996,15 +996,7 @@ async function scanDomain(inputDomain) {
     const crawledPages = [{ url: baseUrl, html: homepageResult.html, code: homepageResult.statusCode }];
     const pagesCrawled = ["homepage"];;
 
-  const subResults = await Promise.all(subPagePromises);
-  for (const sub of subResults) {
-    if (sub) {
-      crawledPages.push(sub);
-      pagesCrawled.push(sub.path);
-    }
-  }
-
-      if (!scanTimedOut) {
+  if (!scanTimedOut) {
       const robotsDisallow = await fetchRobotsDisallowRules(baseUrl, scanController.signal);
       const discoveredPaths = discoverInternalLinks(homepageResult.html, baseUrl, domain);
       const allPaths = [...new Set([...SUB_PAGES, ...discoveredPaths])];
