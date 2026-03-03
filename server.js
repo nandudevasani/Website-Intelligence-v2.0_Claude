@@ -277,8 +277,7 @@ async function fetchPage(url, signal) {
     } else if (err.message) errorType = err.message.substring(0, 80);
 
     logEvent("fetch_error", { url, error: errorType });
-    else if (err.message) errorType = err.message.substring(0, 80);
-
+    
     return {
       ok: false,
       html: "",
