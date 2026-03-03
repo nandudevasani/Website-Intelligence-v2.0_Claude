@@ -337,28 +337,34 @@
     <table>
       <thead>
         <tr>
-          <th>#</th>
+          <div class="stats-bar" id="statsBar" style="display:none;"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
           <th>Domain</th>
           <th>Status</th>
-          <th>Code</th>
-          <th>Reason</th>
+          <th>Country</th>
           <th>Business Name</th>
-          <th>Phone</th>
-          <th>Email</th>
           <th>Street</th>
           <th>City</th>
           <th>State</th>
-          <th>ZIP</th>
+          <th>Zip</th>
+          <th>Phone</th>
+          <th>Email</th>
+          <th>Domain age</th>
           <th>Facebook</th>
           <th>Instagram</th>
           <th>LinkedIn</th>
           <th>GMB</th>
           <th>Signals</th>
           <th>Pages Crawled</th>
+          <th>Reason</th>
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="18" class="empty">Enter domains and click Scan to begin</td></tr>
+        <tr><td colspan="17" class="empty">Enter domains and click Scan to begin</td></tr>
       </tbody>
     </table>
   </div>
@@ -496,18 +502,21 @@
     var cls = "badge-error";
     var label = status;
 
-    switch (status) {
-      case "Active":           cls = "badge-active"; break;
-      case "Shell":            cls = "badge-shell"; break;
-      case "Coming Soon":      cls = "badge-coming-soon"; break;
-      case "Under Construction": cls = "badge-under-construction"; break;
-      case "Parked":           cls = "badge-parked"; break;
-      case "No Content":       cls = "badge-no-content"; break;
-      case "Suspended":        cls = "badge-suspended"; break;
-      case "Error":            cls = "badge-error"; break;
+  case "ACTIVE": cls = "badge-active"; break;
+      case "SHELL_SITE": cls = "badge-shell"; break;
+      case "COMING_SOON": cls = "badge-coming-soon"; break;
+      case "PARKED": cls = "badge-parked"; break;
+      case "NO_CONTENT": cls = "badge-no-content"; break;
+      case "SUSPENDED": cls = "badge-suspended"; break;
+      case "DEFAULT_PAGE": cls = "badge-under-construction"; break;
+      case "CROSS_DOMAIN_REDIRECT": cls = "badge-under-construction"; break;
+      case "REDIRECT_HOST": cls = "badge-under-construction"; break;
+      case "DEAD": cls = "badge-error"; break;
+      case "DOWN": cls = "badge-error"; break;
+      case "ISSUES": cls = "badge-under-construction"; break;
+      case "ERROR": cls = "badge-error"; break;
       default:                 cls = "badge-error";
     }
-
     return '<span class="badge ' + cls + '">' + esc(label) + '</span>';
   }
 
@@ -531,28 +540,28 @@
     }
   }
 
-  // ---- BUILD TABLE ROW ----
+/ ---- BUILD TABLE ROW ----
   function buildRow(r, num) {
     var social = r.social || {};
     return '<tr>' +
-      '<td>' + num + '</td>' +
       '<td><strong>' + esc(r.domain) + '</strong></td>' +
       '<td>' + statusBadge(r.status) + '</td>' +
-      '<td>' + (r.statusCode || "—") + '</td>' +
-      '<td>' + esc(r.reason || "") + '</td>' +
+      '<td>' + esc(r.country || "") + '</td>' +
       '<td>' + esc(r.name || "") + '</td>' +
-      '<td>' + esc(r.phone || "") + '</td>' +
-      '<td>' + esc(r.email || "") + '</td>' +
       '<td>' + esc(r.street || "") + '</td>' +
       '<td>' + esc(r.city || "") + '</td>' +
       '<td>' + esc(r.state || "") + '</td>' +
       '<td>' + esc(r.zip || "") + '</td>' +
+      '<td>' + esc(r.phone || "") + '</td>' +
+      '<td>' + esc(r.email || "") + '</td>' +
+      '<td>' + esc(r.domainAge || "") + '</td>' +
       '<td>' + socialCell(social.facebook) + '</td>' +
       '<td>' + socialCell(social.instagram) + '</td>' +
       '<td>' + socialCell(social.linkedin) + '</td>' +
       '<td>' + socialCell(social.gmb) + '</td>' +
       '<td><span class="signals">' + signalsHtml(r.signals || "") + '</span></td>' +
       '<td><span class="pages-col">' + esc(r.pagesCrawled || "") + '</span></td>' +
+      '<td>' + esc(r.reason || "") + '</td>' +
       '</tr>';
   }
 
@@ -569,30 +578,28 @@
   // ---- ERROR ROW ----
   function errorRow(domain, error, num) {
     return '<tr>' +
-      '<td>' + num + '</td>' +
       '<td><strong>' + esc(domain) + '</strong></td>' +
-      '<td><span class="badge badge-error">Error</span></td>' +
-      '<td>—</td>' +
+      '<td><span class="badge badge-error">ERROR</span></td>' +
+      '<td colspan="14">—</td>' +
       '<td>' + esc(error) + '</td>' +
-      '<td colspan="13">—</td>' +
       '</tr>';
   }
 
   // ---- UPDATE STATS BAR ----
   function updateStats() {
-    var counts = { Active: 0, Shell: 0, "Coming Soon": 0, "Under Construction": 0, Parked: 0, "No Content": 0, Suspended: 0, Error: 0 };
+    var counts = { ACTIVE: 0, SHELL_SITE: 0, COMING_SOON: 0, PARKED: 0, NO_CONTENT: 0, SUSPENDED: 0, ISSUES: 0, ERROR: 0, DOWN: 0, DEAD: 0 };
 
     for (var i = 0; i < allResults.length; i++) {
-      var s = allResults[i].status || "Error";
+      var s = allResults[i].status || "ERROR";
       if (counts.hasOwnProperty(s)) counts[s]++;
-      else counts["Error"]++;
+      else counts["ERROR"]++;
     }
 
     var html = "";
     var colors = {
-      Active: "var(--green)", Shell: "var(--cyan)", "Coming Soon": "var(--yellow)",
-      "Under Construction": "var(--orange)", Parked: "var(--gray)",
-      "No Content": "var(--purple)", Suspended: "var(--red)", Error: "var(--red)"
+      ACTIVE: "var(--green)", SHELL_SITE: "var(--cyan)", COMING_SOON: "var(--yellow)",
+      PARKED: "var(--gray)", NO_CONTENT: "var(--purple)", SUSPENDED: "var(--red)",
+      ISSUES: "var(--orange)", ERROR: "var(--red)", DOWN: "var(--red)", DEAD: "var(--red)"
     };
 
     for (var key in counts) {
@@ -614,31 +621,31 @@
       return;
     }
 
-    var headers = ["#","Domain","Status","HTTP Code","Reason","Business Name","Phone","Email","Street","City","State","ZIP","Facebook","Instagram","LinkedIn","GMB","Signals","Pages Crawled"];
+    var headers = ["Domain","Status","Country","Business Name","Street","City","State","Zip","Phone","Email","Domain age","Facebook","Instagram","LinkedIn","GMB","Signals","Pages Crawled","Reason"];
     var rows = [headers.join(",")];
 
     for (var i = 0; i < allResults.length; i++) {
       var r = allResults[i];
       var social = r.social || {};
       var row = [
-        i + 1,
         csvSafe(r.domain),
         csvSafe(r.status),
-        r.statusCode || "",
-        csvSafe(r.reason),
+        csvSafe(r.country),
         csvSafe(r.name),
-        csvSafe(r.phone),
-        csvSafe(r.email),
         csvSafe(r.street),
         csvSafe(r.city),
         csvSafe(r.state),
         csvSafe(r.zip),
+        csvSafe(r.phone),
+        csvSafe(r.email),
+        csvSafe(r.domainAge),
         csvSafe(social.facebook),
         csvSafe(social.instagram),
         csvSafe(social.linkedin),
         csvSafe(social.gmb),
         csvSafe(r.signals),
         csvSafe(r.pagesCrawled),
+        csvSafe(r.reason),
       ];
       rows.push(row.join(","));
     }
