@@ -407,6 +407,9 @@
   var scanStartTime = 0;
   var simInterval = null;
   var elapsedInterval = null;
+  var activeHealthXhr = null;
+  var activeBatchXhr = null;
+  var domainRowMap = {};
   
   // ---- HELPERS ----
   function esc(s) {
@@ -684,6 +687,7 @@
     stopTimers();
     stopped = false;
     allResults = [];
+    domainRowMap = {};
     totalDomains = domains.length;
     completedDomains = 0;
     tbody.innerHTML = "";
@@ -701,6 +705,7 @@
     var rowNum = 0;
     for (var i = 0; i < domains.length; i++) {
       rowNum++;
+      domainRowMap[domains[i]] = rowNum;
       tbody.innerHTML += scanningRow(domains[i], rowNum);
     }
 
@@ -738,24 +743,33 @@
       statusMsg.textContent = "Analyzing domains... batch " + (chunkIndex + 1) + "/" + chunks.length;
 
       var xhr = new XMLHttpRequest();
+      activeBatchXhr = xhr;
       xhr.open("POST", API + "/batch-scan");
       xhr.setRequestHeader("Content-Type", "application/json");
       xhr.timeout = 120000; // 2 min timeout per batch (multi-page crawl is slow)
 
       xhr.onload = function() {
+        activeBatchXhr = null;
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             var results = JSON.parse(xhr.responseText);
             for (var k = 0; k < results.length; k++) {
-              completedDomains++;
-              allResults.push(results[k]);
+              var item = results[k] || {};
+              var normalizedDomain = String(item.domain || "").trim().toLowerCase();
+              var rowIndex = domainRowMap[normalizedDomain];
+              if (!rowIndex) {
+                completedDomains++;
+                rowIndex = completedDomains;
+              }
+              allResults.push(item);
 
               // Replace scanning row with real result
-              var existingRow = document.getElementById("row-" + completedDomains);
+              var existingRow = document.getElementById("row-" + rowIndex);
               if (existingRow) {
-                existingRow.outerHTML = buildRow(results[k], completedDomains);
+                existingRow.outerHTML = buildRow(item, rowIndex);
               }
             }
+            completedDomains = allResults.length;
             setDomainProgress(completedDomains, totalDomains);
           } catch (e) {
             console.error("Parse error:", e);
@@ -769,11 +783,23 @@
             setDomainProgress(completedDomains, totalDomains);
           }
         } else {
+          var serverErrorMessage = "Server error " + xhr.status;
+          try {
+            var errorPayload = JSON.parse(xhr.responseText || "{}");
+            if (errorPayload && errorPayload.error) {
+              serverErrorMessage = errorPayload.error;
+            }
+          } catch (_err) {
+            // ignore malformed error payload
+          }
+
           for (var p = 0; p < chunk.length; p++) {
             completedDomains++;
-            var exist = document.getElementById("row-" + completedDomains);
+            var chunkDomain = chunk[p];
+            var rowId = domainRowMap[chunkDomain] || completedDomains;
+            var exist = document.getElementById("row-" + rowId);
             if (exist) {
-              exist.outerHTML = errorRow(chunk[p], "Server error " + xhr.status, completedDomains);
+              exist.outerHTML = errorRow(chunkDomain, serverErrorMessage, rowId);
             }
           }
           setDomainProgress(completedDomains, totalDomains);
@@ -787,11 +813,14 @@
       };
 
       xhr.onerror = function() {
+        activeBatchXhr = null;
         for (var q = 0; q < chunk.length; q++) {
           completedDomains++;
-          var ex = document.getElementById("row-" + completedDomains);
+          var chunkDomain = chunk[q];
+          var rowId = domainRowMap[chunkDomain] || completedDomains;
+          var ex = document.getElementById("row-" + rowId);
           if (ex) {
-            ex.outerHTML = errorRow(chunk[q], "Network error", completedDomains);
+            ex.outerHTML = errorRow(chunkDomain, "Network error", rowId);
           }
         }
         setProgress(10 + (completedDomains / domains.length) * 90);
@@ -800,11 +829,14 @@
       };
 
       xhr.ontimeout = function() {
+        activeBatchXhr = null;
         for (var q = 0; q < chunk.length; q++) {
           completedDomains++;
-          var ex = document.getElementById("row-" + completedDomains);
+          var chunkDomain = chunk[q];
+          var rowId = domainRowMap[chunkDomain] || completedDomains;
+          var ex = document.getElementById("row-" + rowId);
           if (ex) {
-            ex.outerHTML = errorRow(chunk[q], "Timeout — server took too long", completedDomains);
+            ex.outerHTML = errorRow(chunkDomain, "Timeout — server took too long", rowId);
           }
         }
         setDomainProgress(completedDomains, totalDomains);
@@ -818,10 +850,12 @@
 
     // Health check first, then start scanning
     var health = new XMLHttpRequest();
+    activeHealthXhr = health;
     health.open("GET", API + "/health");
     health.timeout = 90000;
 
     health.onload = function() {
+      activeHealthXhr = null;
       if (health.status >= 200 && health.status < 300) {
         setProgress(Math.max(progress, 2));
         statusMsg.textContent = "Analyzing domains...";
@@ -838,6 +872,7 @@
     };
 
     health.onerror = function() {
+      activeHealthXhr = null;
       statusMsg.textContent = "Cannot reach server. It may be sleeping — try again in 60s.";
       statusMsg.style.color = "var(--red)";
       stopTimers();
@@ -848,6 +883,7 @@
     };
 
     health.ontimeout = function() {
+      activeHealthXhr = null;
       statusMsg.textContent = "Server took too long to respond. Try again.";
       statusMsg.style.color = "var(--red)";
       stopTimers();
@@ -863,6 +899,14 @@
   // Stop button
   btnStop.addEventListener("click", function() {
     stopped = true;
+    if (activeHealthXhr) {
+      activeHealthXhr.abort();
+      activeHealthXhr = null;
+    }
+    if (activeBatchXhr) {
+      activeBatchXhr.abort();
+      activeBatchXhr = null;
+    }
     btnStop.style.display = "none";
     statusMsg.textContent = "Stopping after current batch...";
     statusMsg.style.color = "var(--yellow)";
