@@ -746,7 +746,7 @@ function extractAddressFromPage(html) {
     return address;
   }
 
-  / Priority 3: semantic address node
+  // Priority 3: semantic address node
   const addressNodeText = $("address").first().text().trim();
   if (addressNodeText) {
     const semanticAddress = parseAddressFromText(addressNodeText);
@@ -765,7 +765,6 @@ function extractAddressFromPage(html) {
 
   return address;
 }
-
 // ============================================================
 // UTILITY: Parse US address from raw text using regex
 // ============================================================
