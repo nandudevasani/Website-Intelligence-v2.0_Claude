@@ -1,7 +1,7 @@
 {
   "name": "website-intelligence-backend",
-  "version": "2.0.0",
-  "description": "Website Intelligence Scanner v2 - Multi-page crawl with layered status classification",
+  "version": "3.0.0",
+  "description": "Website Intelligence Scanner v3 - production-hardened live multi-page scanner",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -11,7 +11,10 @@
     "axios": "^1.7.0",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.4.1",
+    "whois-json": "^2.0.4"
   },
   "engines": {
     "node": ">=18.0.0"
