@@ -1241,6 +1241,46 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Website Intelligence Scanner v2.0" });
 });
 
+// Single domain scan: scan one domain, return result instantly
+app.post("/scan-single", scanRateLimiter, async (req, res) => {
+  try {
+    const { domain } = req.body;
+
+    if (!domain || typeof domain !== "string") {
+      return res.status(400).json({ error: "Domain string required" });
+    }
+
+    const validation = await validateAndResolveDomain(domain);
+    if (!validation.ok) {
+      return res.json({
+        domain: validation.domain || normalizeDomain(domain),
+        status: "ERROR",
+        statusCode: 0,
+        reason: validation.error,
+        name: "",
+        country: "Unknown",
+        phone: "",
+        email: "",
+        street: "",
+        city: "",
+        state: "",
+        zip: "",
+        social: { facebook: "", instagram: "", linkedin: "", gmb: "" },
+        signals: "Phone ✗ | Email ✗ | Social ✗ | Address ✗",
+        pagesCrawled: "",
+        confidenceScore: 0,
+        domainAge: "Unknown",
+      });
+    }
+
+    const result = await scanDomain(domain);
+    res.json(result);
+  } catch (err) {
+    logEvent("fetch_error", { scope: "scan-single", error: err.message || "Unknown" });
+    res.status(500).json({ error: "Server error: " + (err.message || "Unknown") });
+  }
+});
+
 // Batch scan: 5 domains in parallel, up to 60 domains total
 app.post("/batch-scan", scanRateLimiter, async (req, res) => {
   try {
