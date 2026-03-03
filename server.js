@@ -94,6 +94,36 @@ const SUSPENDED_KEYWORDS = [
   "website is suspended", "site suspended",
 ];
 
+const DEFAULT_PAGE_KEYWORDS = [
+  "apache2 ubuntu default page",
+  "welcome to nginx",
+  "test page for the nginx",
+  "if you see this page",
+  "c panel default",
+  "plesk",
+  "web server is running but no content",
+];
+
+const COMING_SOON_TEMPLATE_KEYWORDS = [
+  "godaddy",
+  "wix",
+  "squarespace",
+  "template",
+  "choose a design",
+  "edit this site",
+  "coming soon",
+  "under construction",
+];
+
+const COUNTRY_BY_TLD = {
+  us: "US", ca: "CA", uk: "GB", gb: "GB", in: "IN", au: "AU", nz: "NZ", ie: "IE",
+  de: "DE", fr: "FR", it: "IT", es: "ES", nl: "NL", be: "BE", ch: "CH", at: "AT",
+  se: "SE", no: "NO", dk: "DK", fi: "FI", pl: "PL", pt: "PT", cz: "CZ", hu: "HU",
+  ro: "RO", bg: "BG", gr: "GR", tr: "TR", il: "IL", ae: "AE", sa: "SA", za: "ZA",
+  jp: "JP", kr: "KR", sg: "SG", hk: "HK", cn: "CN", tw: "TW", br: "BR", mx: "MX",
+  ar: "AR", cl: "CL", co: "CO", pe: "PE",
+};
+
 // Words to strip from title tag when extracting business name
 const TITLE_STRIP_PATTERNS = [
   /\s*[\|\-–—]\s*home\s*/gi,
@@ -682,7 +712,7 @@ function extractSocial(html) {
 // ============================================================
 function extractAddressFromPage(html) {
   const $ = cheerio.load(html);
-  const address = { street: "", city: "", state: "", zip: "" };
+  const address = { street: "", city: "", state: "", zip: "", country: "" };
 
   // Priority 1: JSON-LD PostalAddress
   const jsonLd = extractJsonLd(html);
@@ -695,6 +725,7 @@ function extractAddressFromPage(html) {
         if (addrObj.addressLocality) address.city = String(addrObj.addressLocality).trim();
         if (addrObj.addressRegion) address.state = String(addrObj.addressRegion).trim().substring(0, 2).toUpperCase();
         if (addrObj.postalCode) address.zip = String(addrObj.postalCode).trim();
+        if (addrObj.addressCountry) address.country = String(addrObj.addressCountry).trim().toUpperCase().substring(0, 2);
         if (address.street || address.city) return address;
       }
     }
@@ -705,20 +736,29 @@ function extractAddressFromPage(html) {
   const city = $('[itemprop="addressLocality"]').first().text().trim();
   const state = $('[itemprop="addressRegion"]').first().text().trim();
   const zip = $('[itemprop="postalCode"]').first().text().trim();
+  const country = $('[itemprop="addressCountry"]').first().text().trim();
   if (street || city) {
     address.street = street;
     address.city = city;
     address.state = state.substring(0, 2).toUpperCase();
     address.zip = zip;
+    address.country = country ? country.toUpperCase().substring(0, 2) : "";
     return address;
   }
 
-  // Priority 3: Footer-focused regex
+  / Priority 3: semantic address node
+  const addressNodeText = $("address").first().text().trim();
+  if (addressNodeText) {
+    const semanticAddress = parseAddressFromText(addressNodeText);
+    if (semanticAddress.street || semanticAddress.city) return semanticAddress;
+  }
+
+  // Priority 4: Footer-focused regex
   const footerText = $("footer").text() || "";
   const footerAddr = parseAddressFromText(footerText);
   if (footerAddr.street || footerAddr.city) return footerAddr;
 
-  // Priority 4: Full page regex (last resort)
+  // Priority 5: Full page regex (last resort)
   const bodyText = $.text() || "";
   const fullAddr = parseAddressFromText(bodyText);
   if (fullAddr.street || fullAddr.city) return fullAddr;
@@ -730,7 +770,7 @@ function extractAddressFromPage(html) {
 // UTILITY: Parse US address from raw text using regex
 // ============================================================
 function parseAddressFromText(text) {
-  const address = { street: "", city: "", state: "", zip: "" };
+  const address = { street: "", city: "", state: "", zip: "", country: "" };
 
   // US state abbreviations
   const states = "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC";
@@ -776,30 +816,76 @@ function parseAddressFromText(text) {
   return address;
 }
 
+function extractCountryFromPage(html, domain, address, phone) {
+  const $ = cheerio.load(html || "");
+  const jsonLd = extractJsonLd(html || "");
+
+  for (const item of jsonLd) {
+    const addr = item.address || item.location?.address;
+    if (addr && typeof addr === "object" && addr.addressCountry) {
+      return String(addr.addressCountry).trim().toUpperCase().substring(0, 2);
+    }
+  }
+
+  const metaCountry =
+    $('meta[name="geo.country"]').attr("content") ||
+    $('meta[name="country"]').attr("content") ||
+    $('meta[property="og:locale"]').attr("content");
+
+  if (metaCountry) {
+    const normalized = String(metaCountry).trim().toUpperCase();
+    if (normalized.includes("_")) return normalized.split("_")[1].substring(0, 2);
+    return normalized.substring(0, 2);
+  }
+
+  if (address?.country) return address.country;
+  if (address?.state && /^[A-Z]{2}$/.test(address.state)) return "US";
+
+  if (phone && phone.trim().startsWith("+44")) return "GB";
+  if (phone && phone.trim().startsWith("+91")) return "IN";
+
+  const parts = String(domain || "").toLowerCase().split(".");
+  const tld = parts[parts.length - 1];
+  return COUNTRY_BY_TLD[tld] || "Unknown";
+}
+
 // ============================================================
 // STATUS CLASSIFICATION: Layer 1 — HTTP/Network Level
 // ============================================================
-function classifyLayer1(fetchResult) {
-   if (fetchResult.tooLarge) {
-    return { status: "Error", reason: "Page Too Large" };
+function classifyLayer1(fetchResult, domain) {
+  if (fetchResult.tooLarge) {
+    return { status: "ISSUES", reason: "Page Too Large" };
   }
   if (!fetchResult.ok) {
-    return { status: "Error", reason: fetchResult.error };
+    if (fetchResult.error === "DNS Not Found") return { status: "DEAD", reason: "DNS Not Found" };
+    if (["Connection Refused", "Timeout", "Aborted"].includes(fetchResult.error)) {
+      return { status: "DOWN", reason: "Website Not Working" };
+    }
+    return { status: "ERROR", reason: "Website Not Working" };
   }
 
   const code = fetchResult.statusCode;
 
-  if (code === 404) return { status: "Error", reason: "404 Not Found" };
-  if (code === 403) return { status: "Error", reason: "403 Forbidden" };
-  if (code === 410) return { status: "Error", reason: "410 Gone" };
-  if (code >= 500) return { status: "Error", reason: `Server Error (${code})` };
+  if (code === 404) return { status: "ISSUES", reason: "404 Not Found" };
+  if (code === 403) return { status: "ISSUES", reason: "403 Forbidden" };
+  if (code === 410) return { status: "ISSUES", reason: "410 Gone" };
+  if (code >= 500) return { status: "ISSUES", reason: `Server Error (${code})` };
 
-  // Check if redirected to a parking/registrar domain
   const finalUrl = (fetchResult.finalUrl || "").toLowerCase();
   for (const parking of PARKING_DOMAINS) {
     if (finalUrl.includes(parking)) {
-      return { status: "Parked", reason: "Redirects to Registrar" };
+      return { status: "REDIRECT_HOST", reason: "Redirects to Registrar" };
     }
+  }
+
+  try {
+    const finalHost = new URL(fetchResult.finalUrl).hostname.replace(/^www\./, "").toLowerCase();
+    const originalHost = domain.replace(/^www\./, "").toLowerCase();
+    if (finalHost && originalHost && !finalHost.endsWith(originalHost) && !originalHost.endsWith(finalHost)) {
+      return { status: "CROSS_DOMAIN_REDIRECT", reason: "Redirects to unrelated domain" };
+    }
+  } catch (_e) {
+    // ignore URL parse failures
   }
 
   return null; // No Layer 1 issue — proceed to Layer 2
@@ -810,21 +896,18 @@ function classifyLayer1(fetchResult) {
 // ============================================================
 function classifyLayer2(html) {
   if (!html || typeof html !== "string") {
-    return { status: "No Content", reason: "Empty Response" };
+    return { status: "NO_CONTENT", reason: "Empty Response" };
   }
 
   const $ = cheerio.load(html);
-
-  // Get meaningful text content (strip scripts, styles, tags)
   $("script, style, noscript, iframe").remove();
   const bodyText = $.text().replace(/\s+/g, " ").trim();
   const bodyLength = bodyText.length;
   const htmlLower = html.toLowerCase();
 
-  // Check for suspended hosting
   for (const kw of SUSPENDED_KEYWORDS) {
     if (htmlLower.includes(kw)) {
-      return { status: "Suspended", reason: "Hosting Suspended" };
+      return { status: "SUSPENDED", reason: "Hosting Suspended" };
     }
   }
 
@@ -833,43 +916,42 @@ function classifyLayer2(html) {
   const comingSoonCount = countKeywordMatches(htmlLower, COMING_SOON_KEYWORDS);
   const constructionCount = countKeywordMatches(htmlLower, UNDER_CONSTRUCTION_KEYWORDS);
 
-  // Check for parking pages (refined)
   if (!ignoreKeywordClassification && parkingCount >= 2 && bodyLength < 4000) {
-  // Check for "domain for sale" specifically (refined)
-  const hasForSale = htmlLower.includes("domain is for sale") || htmlLower.includes("buy this domain") || htmlLower.includes("domain for sale");
-  if (!ignoreKeywordClassification && hasForSale && bodyLength < 4000) {
-    return { status: "Parked", reason: "Parked Domain" };
-   }
+    return { status: "PARKED", reason: "Parked Domain" };
   }
 
-  // Check for "domain for sale" specifically
   if (htmlLower.includes("domain is for sale") || htmlLower.includes("buy this domain") || htmlLower.includes("domain for sale")) {
-    return { status: "Parked", reason: "Domain For Sale" };
+    return { status: "PARKED", reason: "Domain For Sale" };
   }
 
-  // Check for under construction (refined)
+  if (DEFAULT_PAGE_KEYWORDS.some((kw) => htmlLower.includes(kw))) {
+    return { status: "DEFAULT_PAGE", reason: "Default server page" };
+  }
+
   if (!ignoreKeywordClassification && constructionCount >= 2 && bodyLength < 4000) {
-    return { status: "Under Construction", reason: "Under Construction" };
+    return { status: "COMING_SOON", reason: "Under Construction" };
   }
 
-   // Check for coming soon (refined)
   if (!ignoreKeywordClassification && comingSoonCount >= 2 && bodyLength < 4000) {
-    return { status: "Coming Soon", reason: "Coming Soon" };
+    return { status: "COMING_SOON", reason: "Coming Soon" };
   }
 
-  // Check for empty/minimal content
+  const templateHits = countKeywordMatches(htmlLower, COMING_SOON_TEMPLATE_KEYWORDS);
+  if (templateHits >= 3 && bodyLength < 5000) {
+    return { status: "SHELL_SITE", reason: "Template/Shell Website" };
+  }
+
   if (bodyLength < 100) {
-    return { status: "No Content", reason: "Empty Page" };
+    return { status: "NO_CONTENT", reason: "Empty Page" };
   }
   if (bodyLength < 300) {
-    return { status: "No Content", reason: "Minimal Content" };
+    return { status: "NO_CONTENT", reason: "Minimal Content" };
   }
 
-  // Check for login-only pages
   const hasLoginForm = htmlLower.includes('type="password"') || htmlLower.includes("login") || htmlLower.includes("sign in");
   const hasOnlyLogin = hasLoginForm && bodyLength < 2000;
   if (hasOnlyLogin) {
-    return { status: "No Content", reason: "Login Portal Only" };
+    return { status: "NO_CONTENT", reason: "Login Portal Only" };
   }
 
   return null; // No Layer 2 issue — proceed to Layer 3
@@ -895,16 +977,13 @@ function classifyLayer3(signals) {
     (hasGoogleMaps ? 3 : 0);
 
   if (confidenceScore >= 7) {
-    return { status: "Active", reason: "Active (Strong)", confidenceScore };
+    return { status: "ACTIVE", reason: "Active (Strong)", confidenceScore };
   }
   if (confidenceScore >= 4) {
-    return { status: "Active", reason: "Active", confidenceScore };
-  }
-  if (confidenceScore >= 1) {
-    return { status: "Weak Business Signal", reason: "Weak Business Signal", confidenceScore };
+    return { status: "ACTIVE", reason: "Active", confidenceScore };
   }
 
-  return { status: "Shell", reason: "Shell", confidenceScore };
+  return { status: "SHELL_SITE", reason: "Weak Business Signal", confidenceScore };
 }
 
 // ============================================================
@@ -948,10 +1027,11 @@ async function scanDomain(inputDomain) {
   if (!validated.ok) {
     return {
       domain: validated.domain || normalizeDomain(inputDomain),
-      status: "Error",
+      status: "ERROR",
       statusCode: 0,
       reason: validated.error,
       name: "",
+      country: "Unknown",
       phone: "",
       email: "",
       street: "",
@@ -990,7 +1070,7 @@ async function scanDomain(inputDomain) {
     const domainAge = await whoisPromise;
     
    // ---- Step 2: Layer 1 classification (HTTP level) ----
-    const layer1 = classifyLayer1(homepageResult);
+    const layer1 = classifyLayer1(homepageResult, domain);
 
     // ---- Step 3: Always crawl sub-pages (user chose thorough mode) ----
     const crawledPages = [{ url: baseUrl, html: homepageResult.html, code: homepageResult.statusCode }];
@@ -1027,7 +1107,7 @@ async function scanDomain(inputDomain) {
     let bestName = "";
     let bestPhone = "";
     let bestEmail = "";
-    let bestAddress = { street: "", city: "", state: "", zip: "" };
+   let bestAddress = { street: "", city: "", state: "", zip: "", country: "" };
     let bestSocial = { facebook: "", instagram: "", linkedin: "", gmb: "" };
 
     for (const page of crawledPages) {
@@ -1059,6 +1139,8 @@ async function scanDomain(inputDomain) {
       if (!bestSocial.gmb && pageSocial.gmb) bestSocial.gmb = pageSocial.gmb;
     }
 
+    const detectedCountry = extractCountryFromPage(homepageResult.html, domain, bestAddress, bestPhone);
+    
     // ---- Step 5: Final status classification ----
     let finalStatus;
     let finalReason;
@@ -1074,8 +1156,8 @@ async function scanDomain(inputDomain) {
 
     if (layer1) {
       const hasSomething = layer3.confidenceScore > 0;
-      if (hasSomething && layer1.status === "Error" && !["DNS Not Found", "Connection Refused", "Timeout"].includes(layer1.reason)) {
-        finalStatus = "Active";
+      if (hasSomething && layer1.status === "ERROR") {
+        finalStatus = "ACTIVE";
         finalReason = `Homepage ${layer1.reason}, but business info found on sub-pages`;
       } else {
         finalStatus = layer1.status;
@@ -1087,12 +1169,9 @@ async function scanDomain(inputDomain) {
       if (layer2) {
         const hasSomething = layer3.confidenceScore > 0;
 
-        if (hasSomething && (layer2.status === "Shell" || layer2.status === "No Content")) {
-          finalStatus = "Active";
+        if (hasSomething && layer2.status === "NO_CONTENT") {
+          finalStatus = "ACTIVE";
           finalReason = "Business signals found despite thin content";
-        } else if (hasSomething && layer2.status === "Coming Soon") {
-          finalStatus = "Coming Soon";
-          finalReason = "Coming Soon (has contact info)";
         } else {
           finalStatus = layer2.status;
           finalReason = layer2.reason;
@@ -1112,6 +1191,7 @@ async function scanDomain(inputDomain) {
     const result = {
       domain,
       status: finalStatus,
+      country: detectedCountry,
       statusCode: homepageResult.statusCode,
       reason: finalReason,
       name: bestName,
@@ -1137,6 +1217,7 @@ async function scanDomain(inputDomain) {
     });
 
     return result;
+    
   } finally {
     clearTimeout(timeoutId);
   }
