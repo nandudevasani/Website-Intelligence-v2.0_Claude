@@ -18,8 +18,13 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-// Serve index.html at root
-app.use(express.static(__dirname));
+// Serve frontend assets from /public
+app.use(express.static(path.join(__dirname, "public")));
+
+// Root route for direct browser visits
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 // ============================================================
 // CONFIGURATION
