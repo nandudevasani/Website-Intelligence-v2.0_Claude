@@ -1073,7 +1073,7 @@ async function scanDomain(inputDomain) {
 
     // ---- Step 3: Always crawl sub-pages (user chose thorough mode) ----
     const crawledPages = [{ url: baseUrl, html: homepageResult.html, code: homepageResult.statusCode }];
-    const pagesCrawled = ["homepage"];;
+    const pagesCrawled = ["homepage"];
 
   if (!scanTimedOut) {
       const robotsDisallow = await fetchRobotsDisallowRules(baseUrl, scanController.signal);
