@@ -1281,7 +1281,7 @@ app.post("/scan-single", scanRateLimiter, async (req, res) => {
   }
 });
 
-// Batch scan: 5 domains in parallel, up to 60 domains total
+// Batch scan: up to 60 domains total
 app.post("/batch-scan", scanRateLimiter, async (req, res) => {
   try {
     const { domains } = req.body;
