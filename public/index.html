@@ -91,9 +91,9 @@
   }
 
   .progress-wrap {
-    height: 3px;
+    height: 8px;
     background: var(--border);
-    border-radius: 2px;
+    border-radius: 999px;
     margin: 0.75rem 0;
     overflow: hidden;
     opacity: 0;
@@ -104,8 +104,60 @@
     height: 100%;
     width: 0%;
     background: var(--accent);
-    border-radius: 2px;
+    border-radius: 999px;
     transition: width 0.4s ease;
+  }
+
+  .scan-meta {
+    display: none;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 0.35rem;
+  }
+
+  .scan-meta.visible { display: flex; }
+
+  .spinner {
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: none;
+  }
+
+  .spinner.visible { display: inline-block; }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .scan-summary {
+    display: none;
+    margin: 0.8rem 0 0.2rem;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-hover);
+  }
+
+  .scan-summary.visible { display: block; }
+
+  .scan-summary h3 {
+    font-size: 0.82rem;
+    margin-bottom: 0.35rem;
+    color: var(--green);
+  }
+
+  .scan-summary p {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    margin: 0.15rem 0;
+    font-family: 'JetBrains Mono', monospace;
   }
 
   .btn-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
@@ -261,6 +313,11 @@
     <label>Enter domains (one per line, max 50)</label>
     <textarea id="input" placeholder="example.com&#10;anotherdomain.com&#10;mybusiness.net"></textarea>
     <div class="domain-count" id="counter">0 / 50 domains</div>
+    <div class="scan-meta" id="scanMeta">
+      <span id="progressText">Progress: 0%</span>
+      <span id="domainProgress">Analyzing 0 / 0 domains...</span>
+      <span id="elapsed">Elapsed: 0s</span>
+    </div>
     <div class="progress-wrap" id="progressWrap">
       <div class="progress-bar" id="progressBar"></div>
     </div>
@@ -268,8 +325,10 @@
       <button class="btn-primary" id="btnScan">Scan Websites</button>
       <button class="btn-secondary" id="btnExport">Export CSV</button>
       <button class="btn-stop" id="btnStop" style="display:none;">Stop</button>
+      <span class="spinner" id="spinner" aria-hidden="true"></span>
       <span id="statusMsg"></span>
     </div>
+    <div class="scan-summary" id="scanSummary"></div>
   </div>
 
   <div class="stats-bar" id="statsBar" style="display:none;"></div>
@@ -327,7 +386,22 @@
   var btnExport = document.getElementById("btnExport");
   var btnStop = document.getElementById("btnStop");
   var statsBar = document.getElementById("statsBar");
+  var spinner = document.getElementById("spinner");
+  var scanMeta = document.getElementById("scanMeta");
+  var progressText = document.getElementById("progressText");
+  var domainProgress = document.getElementById("domainProgress");
+  var elapsed = document.getElementById("elapsed");
+  var scanSummary = document.getElementById("scanSummary");
 
+  var loading = false;
+  var progress = 0;
+  var totalDomains = 0;
+  var elapsedSeconds = 0;
+  var completedDomains = 0;
+  var scanStartTime = 0;
+  var simInterval = null;
+  var elapsedInterval = null;
+  
   // ---- HELPERS ----
   function esc(s) {
     if (!s) return "";
@@ -347,7 +421,68 @@
   }
 
   function setProgress(pct) {
-    progressBar.style.width = Math.min(pct, 100) + "%";
+    progress = Math.max(0, Math.min(pct, 100));
+    progressBar.style.width = progress + "%";
+    progressText.textContent = "Progress: " + Math.round(progress) + "%";
+  }
+
+  function setDomainProgress(done, total) {
+    domainProgress.textContent = "Analyzing " + done + " / " + total + " domains...";
+  }
+
+  function setLoadingState(isLoading) {
+    loading = isLoading;
+    btnScan.disabled = isLoading;
+    if (isLoading) {
+      spinner.classList.add("visible");
+      progressWrap.classList.add("visible");
+      scanMeta.classList.add("visible");
+      statusMsg.textContent = "Analyzing domains...";
+      statusMsg.style.color = "var(--text-muted)";
+    } else {
+      spinner.classList.remove("visible");
+    }
+  }
+
+  function stopTimers() {
+    if (simInterval) {
+      clearInterval(simInterval);
+      simInterval = null;
+    }
+    if (elapsedInterval) {
+      clearInterval(elapsedInterval);
+      elapsedInterval = null;
+    }
+  }
+
+  function startTimers() {
+    scanStartTime = Date.now();
+    elapsedSeconds = 0;
+    elapsed.textContent = "Elapsed: 0s";
+
+    simInterval = setInterval(function() {
+      if (!loading) return;
+      if (progress < 95) {
+        var remaining = totalDomains - completedDomains;
+        var increment = remaining > 15 ? 1.8 : 1.1;
+        setProgress(Math.min(progress + increment, 95));
+      }
+    }, 500);
+
+    elapsedInterval = setInterval(function() {
+      elapsedSeconds = Math.floor((Date.now() - scanStartTime) / 1000);
+      elapsed.textContent = "Elapsed: " + elapsedSeconds + "s";
+    }, 1000);
+  }
+
+  function showSummary(submitted, processed, durationSeconds) {
+    var average = processed > 0 ? (durationSeconds / processed) : 0;
+    scanSummary.innerHTML = '<h3>Scan Complete</h3>' +
+      '<p>Total submitted: ' + submitted + ' domains</p>' +
+      '<p>Total processed: ' + processed + ' domains</p>' +
+      '<p>Completed in ' + durationSeconds.toFixed(1) + ' seconds</p>' +
+      '<p>Average per domain: ' + average.toFixed(2) + ' seconds</p>';
+    scanSummary.classList.add("visible");
   }
 
   // Domain count updater
@@ -529,6 +664,8 @@
 
   // ---- MAIN SCAN ----
   btnScan.addEventListener("click", function() {
+    if (loading) return;
+    
     var domains = getDomains();
     if (domains.length === 0) {
       statusMsg.textContent = "Enter at least one domain.";
@@ -536,18 +673,22 @@
       return;
     }
 
-    // Reset
+    / Reset
+    stopTimers();
     stopped = false;
     allResults = [];
+    totalDomains = domains.length;
+    completedDomains = 0;
     tbody.innerHTML = "";
     statsBar.style.display = "none";
     statsBar.innerHTML = "";
-    progressWrap.classList.add("visible");
-    setProgress(5);
-    btnScan.disabled = true;
+    scanSummary.classList.remove("visible");
+    scanSummary.innerHTML = "";
+    setProgress(0);
+    setDomainProgress(0, totalDomains);
+    setLoadingState(true);
+    startTimers();
     btnStop.style.display = "inline-block";
-    statusMsg.textContent = "Waking up server...";
-    statusMsg.style.color = "var(--text-muted)";
 
     // Add scanning placeholders
     var rowNum = 0;
@@ -563,27 +704,31 @@
     }
 
     var chunkIndex = 0;
-    var completedDomains = 0;
-
+   
     function processNextChunk() {
       if (stopped || chunkIndex >= chunks.length) {
         // Done
-        btnScan.disabled = false;
+        stopTimers();
+        setLoadingState(false);
         btnStop.style.display = "none";
         setProgress(100);
+        elapsedSeconds = (Date.now() - scanStartTime) / 1000;
+        elapsed.textContent = "Elapsed: " + Math.round(elapsedSeconds) + "s";
         if (stopped) {
           statusMsg.textContent = "Stopped. " + completedDomains + "/" + domains.length + " scanned.";
           statusMsg.style.color = "var(--yellow)";
         } else {
           statusMsg.textContent = "Done! " + domains.length + " domains scanned.";
           statusMsg.style.color = "var(--green)";
+          showSummary(totalDomains, completedDomains, elapsedSeconds);
         }
+        setDomainProgress(completedDomains, totalDomains);
         updateStats();
         return;
       }
 
       var chunk = chunks[chunkIndex];
-      statusMsg.textContent = "Scanning batch " + (chunkIndex + 1) + "/" + chunks.length + " (" + completedDomains + "/" + domains.length + " done)...";
+      statusMsg.textContent = "Analyzing domains... batch " + (chunkIndex + 1) + "/" + chunks.length;
 
       var xhr = new XMLHttpRequest();
       xhr.open("POST", API + "/batch-scan");
@@ -604,6 +749,7 @@
                 existingRow.outerHTML = buildRow(results[k], completedDomains);
               }
             }
+            setDomainProgress(completedDomains, totalDomains);
           } catch (e) {
             console.error("Parse error:", e);
             for (var m = 0; m < chunk.length; m++) {
@@ -613,6 +759,7 @@
                 existing.outerHTML = errorRow(chunk[m], "Response parse error", completedDomains);
               }
             }
+            setDomainProgress(completedDomains, totalDomains);
           }
         } else {
           for (var p = 0; p < chunk.length; p++) {
@@ -622,9 +769,10 @@
               exist.outerHTML = errorRow(chunk[p], "Server error " + xhr.status, completedDomains);
             }
           }
+          setDomainProgress(completedDomains, totalDomains);
         }
-
-        var pct = 10 + (completedDomains / domains.length) * 90;
+          
+        var pct = (completedDomains / domains.length) * 100;
         setProgress(pct);
         updateStats();
         chunkIndex++;
@@ -652,7 +800,8 @@
             ex.outerHTML = errorRow(chunk[q], "Timeout — server took too long", completedDomains);
           }
         }
-        setProgress(10 + (completedDomains / domains.length) * 90);
+        setDomainProgress(completedDomains, totalDomains);
+        setProgress((completedDomains / domains.length) * 100);
         chunkIndex++;
         processNextChunk();
       };
@@ -667,31 +816,38 @@
 
     health.onload = function() {
       if (health.status >= 200 && health.status < 300) {
-        setProgress(10);
-        statusMsg.textContent = "Server is up. Starting scan...";
+        setProgress(Math.max(progress, 2));
+        statusMsg.textContent = "Analyzing domains...";
         processNextChunk();
       } else {
         statusMsg.textContent = "Server error: " + health.status + ". Try again.";
         statusMsg.style.color = "var(--red)";
-        btnScan.disabled = false;
+        stopTimers();
+        setLoadingState(false);
         btnStop.style.display = "none";
+        progressWrap.classList.remove("visible");
+        scanMeta.classList.remove("visible");
       }
     };
 
     health.onerror = function() {
       statusMsg.textContent = "Cannot reach server. It may be sleeping — try again in 60s.";
       statusMsg.style.color = "var(--red)";
-      btnScan.disabled = false;
+      stopTimers();
+      setLoadingState(false);
       btnStop.style.display = "none";
       progressWrap.classList.remove("visible");
+      scanMeta.classList.remove("visible");
     };
 
     health.ontimeout = function() {
       statusMsg.textContent = "Server took too long to respond. Try again.";
       statusMsg.style.color = "var(--red)";
-      btnScan.disabled = false;
+      stopTimers();
+      setLoadingState(false);
       btnStop.style.display = "none";
       progressWrap.classList.remove("visible");
+      scanMeta.classList.remove("visible");
     };
 
     health.send();
