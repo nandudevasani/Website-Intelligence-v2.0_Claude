@@ -35,7 +35,6 @@ const WHOIS_TIMEOUT = 8000; // 8 seconds for whois
 const MAX_HTML_SIZE = 2 * 1024 * 1024; // 2MB
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const MAX_BATCH_SIZE = 60;
-const BATCH_CONCURRENCY = 5;
 
 const scanRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -1001,22 +1000,33 @@ function buildSignalsSummary(phone, email, social, address) {
 
   return parts.join(" | ");
 }
-async function processWithConcurrency(items, concurrency, worker) {
+async function runBatchSequential(domains) {
   const results = [];
-  let index = 0;
 
-  async function runNext() {
-    while (index < items.length) {
-      const currentIndex = index++;
-      const value = await worker(items[currentIndex], currentIndex);
-      if (value) results.push(value);
+  for (const domain of domains) {
+    try {
+      const result = await scanDomain(domain);
+      results.push(result);
+    } catch (error) {
+      results.push({
+        domain,
+        status: "Error",
+        reason: error.message,
+      });
     }
   }
 
-  const runners = Array.from({ length: Math.min(concurrency, items.length) }, () => runNext());
-  await Promise.all(runners);
-  return results;
-}
+  const formattedResults = results.map((item, index) => ({
+    slNo: index + 1,
+    ...item,
+  }));
+
+  return {
+    totalDomains: domains.length,
+    completed: formattedResults.length,
+    results: formattedResults,
+  };
+}  
 
 // ============================================================
 // MAIN: Scan a single domain (multi-page crawl)
@@ -1242,8 +1252,14 @@ app.post("/batch-scan", scanRateLimiter, async (req, res) => {
 
     const batch = domains.slice(0, MAX_BATCH_SIZE);
 
-    const validations = await Promise.all(batch.map((d) => validateAndResolveDomain(d)));
-    const invalid = validations.filter((v) => !v.ok);
+    const invalid = [];
+    for (const domain of batch) {
+      const validation = await validateAndResolveDomain(domain);
+      if (!validation.ok) {
+        invalid.push(validation);
+      }
+    }
+
     if (invalid.length > 0) {
       return res.status(400).json({
         error: "Invalid or blocked domains",
@@ -1251,8 +1267,7 @@ app.post("/batch-scan", scanRateLimiter, async (req, res) => {
       });
     }
 
-    const results = await processWithConcurrency(batch, BATCH_CONCURRENCY, async (d) => scanDomain(d));
-
+    const results = await runBatchSequential(batch);
     res.json(results);
   } catch (err) {
     logEvent("fetch_error", { scope: "batch-scan", error: err.message || "Unknown" });
@@ -1271,8 +1286,14 @@ app.post("/bulk-analyze", scanRateLimiter, async (req, res) => {
 
     const limited = domains.slice(0, MAX_BATCH_SIZE);
 
-    const validations = await Promise.all(limited.map((d) => validateAndResolveDomain(d)));
-    const invalid = validations.filter((v) => !v.ok);
+    const invalid = [];
+    for (const domain of limited) {
+      const validation = await validateAndResolveDomain(domain);
+      if (!validation.ok) {
+        invalid.push(validation);
+      }
+    }
+
     if (invalid.length > 0) {
       return res.status(400).json({
         error: "Invalid or blocked domains",
@@ -1280,7 +1301,8 @@ app.post("/bulk-analyze", scanRateLimiter, async (req, res) => {
       });
     }
 
-    const results = await processWithConcurrency(limited, BATCH_CONCURRENCY, async (d) => scanDomain(d));
+    const results = await runBatchSequential(limited);
+    
     res.json(results);
   } catch (err) {
     logEvent("fetch_error", { scope: "bulk-analyze", error: err.message || "Unknown" });
