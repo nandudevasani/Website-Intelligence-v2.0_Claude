@@ -706,32 +706,34 @@
       tbody.innerHTML += scanningRow(domains[i], rowNum);
     }
 
+    // ---- One-at-a-time domain scanning ----
     var domainIndex = 0;
 
-    function processNextDomain() {
-      if (stopped || domainIndex >= domains.length) {
-        // Done
-        stopTimers();
-        setLoadingState(false);
-        btnStop.style.display = "none";
-        setProgress(100);
-        elapsedSeconds = (Date.now() - scanStartTime) / 1000;
-        elapsed.textContent = "Elapsed: " + Math.round(elapsedSeconds) + "s";
-        if (stopped) {
-          statusMsg.textContent = "Stopped. " + completedDomains + "/" + domains.length + " scanned.";
-          statusMsg.style.color = "var(--yellow)";
-        } else {
-          statusMsg.textContent = "Done! " + domains.length + " domains scanned.";
-          statusMsg.style.color = "var(--green)";
-          showSummary(totalDomains, completedDomains, elapsedSeconds);
-        }
-        setDomainProgress(completedDomains, totalDomains);
-        updateStats();
-        return;
+    function scanFinished(wasStopped) {
+      stopTimers();
+      setLoadingState(false);
+      btnStop.style.display = "none";
+      setProgress(100);
+      elapsedSeconds = (Date.now() - scanStartTime) / 1000;
+      elapsed.textContent = "Elapsed: " + Math.round(elapsedSeconds) + "s";
+      if (wasStopped) {
+        statusMsg.textContent = "Stopped. " + completedDomains + "/" + domains.length + " scanned.";
+        statusMsg.style.color = "var(--yellow)";
+      } else {
+        statusMsg.textContent = "Done! " + domains.length + " domains scanned.";
+        statusMsg.style.color = "var(--green)";
+        showSummary(totalDomains, completedDomains, elapsedSeconds);
       }
+      setDomainProgress(completedDomains, totalDomains);
+      updateStats();
+    }
+
+    function processNextDomain() {
+      if (stopped) { scanFinished(true); return; }
+      if (domainIndex >= domains.length) { scanFinished(false); return; }
 
       var currentDomain = domains[domainIndex];
-      var currentRow = domainRowMap[currentDomain];
+      var currentRowNum = domainRowMap[currentDomain];
       statusMsg.textContent = "Scanning " + (domainIndex + 1) + " / " + domains.length + " — " + currentDomain;
 
       var xhr = new XMLHttpRequest();
@@ -746,36 +748,27 @@
           try {
             var item = JSON.parse(xhr.responseText);
             allResults.push(item);
-
-            var existingRow = document.getElementById("row-" + currentRow);
+            var existingRow = document.getElementById("row-" + currentRowNum);
             if (existingRow) {
-              existingRow.outerHTML = buildRow(item, currentRow);
+              existingRow.outerHTML = buildRow(item, currentRowNum);
             }
           } catch (e) {
             console.error("Parse error:", e);
-            var existingRow2 = document.getElementById("row-" + currentRow);
-            if (existingRow2) {
-              existingRow2.outerHTML = errorRow(currentDomain, "Response parse error", currentRow);
-            }
+            var er1 = document.getElementById("row-" + currentRowNum);
+            if (er1) er1.outerHTML = errorRow(currentDomain, "Response parse error", currentRowNum);
           }
         } else {
-          var serverErrorMessage = "Server error " + xhr.status;
+          var errMsg = "Server error " + xhr.status;
           try {
-            var errorPayload = JSON.parse(xhr.responseText || "{}");
-            if (errorPayload && errorPayload.error) {
-              serverErrorMessage = errorPayload.error;
-            }
-          } catch (_err) {}
-
-          var existingRow3 = document.getElementById("row-" + currentRow);
-          if (existingRow3) {
-            existingRow3.outerHTML = errorRow(currentDomain, serverErrorMessage, currentRow);
-          }
+            var ep = JSON.parse(xhr.responseText || "{}");
+            if (ep && ep.error) errMsg = ep.error;
+          } catch (_e) {}
+          var er2 = document.getElementById("row-" + currentRowNum);
+          if (er2) er2.outerHTML = errorRow(currentDomain, errMsg, currentRowNum);
         }
 
         completedDomains++;
-        var pct = (completedDomains / domains.length) * 100;
-        setProgress(pct);
+        setProgress((completedDomains / domains.length) * 100);
         setDomainProgress(completedDomains, totalDomains);
         updateStats();
         domainIndex++;
@@ -784,26 +777,24 @@
 
       xhr.onerror = function() {
         activeBatchXhr = null;
-        var existingRow = document.getElementById("row-" + currentRow);
-        if (existingRow) {
-          existingRow.outerHTML = errorRow(currentDomain, "Network error", currentRow);
-        }
+        var er = document.getElementById("row-" + currentRowNum);
+        if (er) er.outerHTML = errorRow(currentDomain, "Network error", currentRowNum);
         completedDomains++;
         setProgress((completedDomains / domains.length) * 100);
         setDomainProgress(completedDomains, totalDomains);
+        updateStats();
         domainIndex++;
         processNextDomain();
       };
 
       xhr.ontimeout = function() {
         activeBatchXhr = null;
-        var existingRow = document.getElementById("row-" + currentRow);
-        if (existingRow) {
-          existingRow.outerHTML = errorRow(currentDomain, "Timeout — server took too long", currentRow);
-        }
+        var er = document.getElementById("row-" + currentRowNum);
+        if (er) er.outerHTML = errorRow(currentDomain, "Timeout — server took too long", currentRowNum);
         completedDomains++;
-        setDomainProgress(completedDomains, totalDomains);
         setProgress((completedDomains / domains.length) * 100);
+        setDomainProgress(completedDomains, totalDomains);
+        updateStats();
         domainIndex++;
         processNextDomain();
       };
@@ -811,52 +802,81 @@
       xhr.send(JSON.stringify({ domain: currentDomain }));
     }
 
-    // Health check first, then start scanning
-    var health = new XMLHttpRequest();
-    activeHealthXhr = health;
-    health.open("GET", API + "/health");
-    health.timeout = 90000;
+    // ---- Health check with auto-retry for sleeping Render server ----
+    var MAX_HEALTH_RETRIES = 3;
+    var RETRY_DELAY = 10; // seconds between retries
+    var healthAttempt = 0;
 
-    health.onload = function() {
-      activeHealthXhr = null;
-      if (health.status >= 200 && health.status < 300) {
-        setProgress(Math.max(progress, 2));
-        statusMsg.textContent = "Analyzing domains...";
-        processNextDomain();
-      } else {
-        statusMsg.textContent = "Server error: " + health.status + ". Try again.";
-        statusMsg.style.color = "var(--red)";
-        stopTimers();
-        setLoadingState(false);
-        btnStop.style.display = "none";
-        progressWrap.classList.remove("visible");
-        scanMeta.classList.remove("visible");
-      }
-    };
-
-    health.onerror = function() {
-      activeHealthXhr = null;
-      statusMsg.textContent = "Cannot reach server. It may be sleeping — try again in 60s.";
+    function cleanupOnFail(msg) {
+      // Clear all stuck scanning rows
+      tbody.innerHTML = "";
+      allResults = [];
+      completedDomains = 0;
+      statusMsg.textContent = msg;
       statusMsg.style.color = "var(--red)";
       stopTimers();
       setLoadingState(false);
       btnStop.style.display = "none";
       progressWrap.classList.remove("visible");
       scanMeta.classList.remove("visible");
-    };
+    }
 
-    health.ontimeout = function() {
-      activeHealthXhr = null;
-      statusMsg.textContent = "Server took too long to respond. Try again.";
-      statusMsg.style.color = "var(--red)";
-      stopTimers();
-      setLoadingState(false);
-      btnStop.style.display = "none";
-      progressWrap.classList.remove("visible");
-      scanMeta.classList.remove("visible");
-    };
+    function retryCountdown(secondsLeft, callback) {
+      if (stopped) { cleanupOnFail("Stopped."); return; }
+      if (secondsLeft <= 0) { callback(); return; }
+      statusMsg.textContent = "Server is waking up... retrying in " + secondsLeft + "s (attempt " + (healthAttempt + 1) + "/" + MAX_HEALTH_RETRIES + ")";
+      statusMsg.style.color = "var(--yellow)";
+      setTimeout(function() { retryCountdown(secondsLeft - 1, callback); }, 1000);
+    }
 
-    health.send();
+    function tryHealthCheck() {
+      if (stopped) { cleanupOnFail("Stopped."); return; }
+      healthAttempt++;
+
+      statusMsg.textContent = "Waking server... attempt " + healthAttempt + "/" + MAX_HEALTH_RETRIES;
+      statusMsg.style.color = "var(--text-muted)";
+
+      var health = new XMLHttpRequest();
+      activeHealthXhr = health;
+      health.open("GET", API + "/health");
+      health.timeout = 90000;
+
+      health.onload = function() {
+        activeHealthXhr = null;
+        if (health.status >= 200 && health.status < 300) {
+          setProgress(Math.max(progress, 2));
+          statusMsg.textContent = "Server ready! Scanning domains...";
+          statusMsg.style.color = "var(--text-muted)";
+          processNextDomain();
+        } else if (healthAttempt < MAX_HEALTH_RETRIES) {
+          retryCountdown(RETRY_DELAY, tryHealthCheck);
+        } else {
+          cleanupOnFail("Server returned error " + health.status + " after " + MAX_HEALTH_RETRIES + " attempts. Try again.");
+        }
+      };
+
+      health.onerror = function() {
+        activeHealthXhr = null;
+        if (healthAttempt < MAX_HEALTH_RETRIES) {
+          retryCountdown(RETRY_DELAY, tryHealthCheck);
+        } else {
+          cleanupOnFail("Cannot reach server after " + MAX_HEALTH_RETRIES + " attempts. It may be sleeping — try again in 60s.");
+        }
+      };
+
+      health.ontimeout = function() {
+        activeHealthXhr = null;
+        if (healthAttempt < MAX_HEALTH_RETRIES) {
+          retryCountdown(RETRY_DELAY, tryHealthCheck);
+        } else {
+          cleanupOnFail("Server took too long after " + MAX_HEALTH_RETRIES + " attempts. Try again.");
+        }
+      };
+
+      health.send();
+    }
+
+    tryHealthCheck();
   });
 
   // Stop button
