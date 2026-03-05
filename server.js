@@ -415,7 +415,7 @@ function analyzeContent(html, domain, finalUrl) {
   // Check title repetition in headings
   const titleText = (analysis.details.title || '').toLowerCase().trim();
   let titleRepeatCount = 0;
-  if (titleText.length > 2) {
+ if (titleText.length > 2) {
     analysis.details.headings.forEach(h => {
       const ht = h.toLowerCase().trim();
       if (ht.includes(titleText) || titleText.includes(ht)) titleRepeatCount++;
@@ -440,21 +440,12 @@ function analyzeContent(html, domain, finalUrl) {
 
   if (isShellSite) {
     // ── Real business override ──
-    // Even a minimal real business leaves traces: phone, email, WhatsApp, or social.
+    // Even a minimal real business leaves traces: phone, email, or WhatsApp.
     // If ANY of these exist, the site belongs to a real business — not a true shell.
     const hasPhone   = /(?:tel:|href=["']tel:|(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})/i.test(html);
     const hasEmail   = /mailto:[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i.test(html);
     const hasWhatsApp = /wa\.me\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:/i.test(html);
-    const hasSocial  = /facebook\.com\/(?!sharer|share\.php|login|dialog|groups|hashtag|intent|plugins|php\?)[^"'\s<>]{3,}/i.test(html)
-                    || /instagram\.com\/[^"'\s<>]{3,}/i.test(html)
-                    || /linkedin\.com\/(company|in)\/[^"'\s<>]{2,}/i.test(html)
-                    || /tiktok\.com\/@[^"'\s<>]{2,}/i.test(html)
-                    || /twitter\.com\/[^"'\s<>]{2,}/i.test(html)
-                    || /x\.com\/[^"'\s<>]{2,}/i.test(html)
-                    || /youtube\.com\/(channel|c|user|@)[^"'\s<>]{2,}/i.test(html)
-                    || /yelp\.com\/biz\/[^"'\s<>]{2,}/i.test(html);
-
-    const realBusinessSignals = [hasPhone, hasEmail, hasWhatsApp, hasSocial].filter(Boolean);
+    const realBusinessSignals = [hasPhone, hasEmail, hasWhatsApp].filter(Boolean);
 
     // Filter out template-default signals (GoDaddy filler emails, placeholder phones)
     const hasFillerEmail = /mailto:(?:filler|noreply|no-reply)@/i.test(html);
@@ -465,19 +456,18 @@ function analyzeContent(html, domain, finalUrl) {
       analysis.verdict = 'VALID';
       analysis.confidence = Math.min(40 + realBusinessSignals.length * 15, 80);
       analysis.reasons.push('Template-style site but has real business contact signals (' +
-        [hasPhone && 'phone', hasEmail && 'email', hasWhatsApp && 'WhatsApp', hasSocial && 'social'].filter(Boolean).join(', ') + ')');
+        [hasPhone && 'phone', hasEmail && 'email', hasWhatsApp && 'WhatsApp'].filter(Boolean).join(', ') + ')');
       analysis.flags.push('MINIMAL_SITE', 'BUILDER_DETECTED');
       if (hasWhatsApp) analysis.flags.push('HAS_WHATSAPP');
       if (hasPhone)    analysis.flags.push('HAS_PHONE');
       if (hasEmail)    analysis.flags.push('HAS_EMAIL');
-      if (hasSocial)   analysis.flags.push('HAS_SOCIAL');
       return analysis;
     }
 
     // No real business signals — confirmed shell
     analysis.verdict = 'SHELL_SITE';
     analysis.confidence = Math.min(55 + shellSignalCount * 7 + (titleRepeatCount >= 2 ? 10 : 0) + (hasBuilderIndicator ? 10 : 0) + (shellSignals.dropUsLine ? 5 : 0), 95);
-    analysis.reasons.push('Website is a template shell — no phone, email, WhatsApp, or social links found.');
+    analysis.reasons.push('Website is a template shell — no phone, email, or WhatsApp signals found.');
     analysis.flags.push('SHELL_SITE');
     if (hasBuilderIndicator) analysis.flags.push('BUILDER_DETECTED');
     return analysis;
@@ -965,7 +955,7 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
         const mainWord = prefixMatch[2];
         // Split mainWord on any camelCase or just capitalize
         const mainSplit = mainWord.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
-        const mainWords = mainSplit.map(s => s.charAt(0).toUpperCase() + s.slice(1));
+       const mainWords = mainSplit.map(s => s.charAt(0).toUpperCase() + s.slice(1));
         return [num + prefix.toUpperCase(), ...mainWords];
       }
 
@@ -988,78 +978,6 @@ function extractOGMeta(html) {
     return m ? m[1].trim() : null;
   };
   return { siteName: get('site_name'), title: get('title'), description: get('description'), image: get('image'), url: get('url'), type: get('type') };
-}
-
-function extractSocialLinks(html) {
-  const socials = { facebook:null, twitter:null, instagram:null, linkedin:null, youtube:null, tiktok:null, pinterest:null, yelp:null, whatsapp:null };
-
-  const allLinks = html.match(/https?:\/\/[^\s"'<>]+/gi) || [];
-
-  const badFacebookPatterns = [
-    'sharer',
-    'share.php',
-    'login',
-    'dialog',
-    'groups',
-    'events',
-    'hashtag',
-    'intent',
-    'plugins',
-    'php?'
-  ];
-
-  for (let url of allLinks) {
-    const cleanUrl = url.split('?')[0].replace(/\/$/, '');
-
-    if (!socials.facebook && /facebook\.com\//i.test(cleanUrl)) {
-      const lower = cleanUrl.toLowerCase();
-      if (!badFacebookPatterns.some(p => lower.includes(p))) {
-        socials.facebook = cleanUrl;
-      }
-    }
-
-    if (!socials.twitter && /(twitter\.com|x\.com)\//i.test(cleanUrl)) {
-      socials.twitter = cleanUrl;
-    }
-
-    if (!socials.instagram && /instagram\.com\//i.test(cleanUrl)) {
-      socials.instagram = cleanUrl;
-    }
-
-    if (!socials.linkedin && /linkedin\.com\/(company|in)\//i.test(cleanUrl)) {
-      socials.linkedin = cleanUrl;
-    }
-
-    if (!socials.youtube && /youtube\.com\/(channel|c|user|@)/i.test(cleanUrl)) {
-      socials.youtube = cleanUrl;
-    }
-
-    if (!socials.tiktok && /tiktok\.com\/@/i.test(cleanUrl)) {
-      socials.tiktok = cleanUrl;
-    }
-
-    if (!socials.pinterest && /pinterest\.com\//i.test(cleanUrl)) {
-      socials.pinterest = cleanUrl;
-    }
-
-    if (!socials.yelp && /yelp\.com\/biz\//i.test(cleanUrl)) {
-      socials.yelp = cleanUrl;
-    }
-
-    if (!socials.whatsapp && /wa\.me\/|whatsapp\.com\/send|api\.whatsapp\.com/i.test(url)) {
-      // Preserve full WhatsApp link including number
-      socials.whatsapp = url.split('"')[0].split("'")[0].replace(/[>\s].*/, '');
-    }
-  }
-
-  // Also check for whatsapp: protocol links
-  if (!socials.whatsapp) {
-    const waMatch = html.match(/href=["']((?:https?:\/\/)?(?:wa\.me|api\.whatsapp\.com|whatsapp\.com\/send)[^"'\s<>]+)["']/i);
-    if (waMatch) socials.whatsapp = waMatch[1];
-  }
-
-  // Strip null values — only return platforms that actually have links
-  return Object.fromEntries(Object.entries(socials).filter(([, v]) => v !== null));
 }
 
 function extractContactInfo(html, bodyText) {
@@ -1087,7 +1005,7 @@ function extractContactInfo(html, bodyText) {
   }
 
   // Phone numbers from BODY TEXT first (already formatted by the website)
-  const phonePatterns = [
+    const phonePatterns = [
     /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g,           // (xxx) xxx-xxxx
     /\+1[\s.\-]?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/g, // +1 xxx xxx xxxx
     /\+\d{1,3}[\s.\-]?\d{2,4}[\s.\-]?\d{3,4}[\s.\-]?\d{3,4}/g // international
@@ -1687,7 +1605,47 @@ const rawInput = decodeHTML(String(rawAddress));
    return result;
  }
  
- async function extractBusinessInfo(html, domain) {
+ 
+function buildBusinessStrengthSignals({ businessName, phones, emails, address, schema, metaDescription }) {
+  const normalizedName = (businessName || '').trim();
+  const hasBusinessName = normalizedName.length >= 3 && !isBoilerplateName(normalizedName);
+  const hasPhone = Array.isArray(phones) && phones.length > 0;
+  const hasEmail = Array.isArray(emails) && emails.length > 0;
+  const hasStreetAddress = !!(address?.street && address.street.trim().length > 5);
+  const hasLocality = !!(address?.city || address?.state || address?.zip);
+  const hasSchemaName = !!schema?.hasSchema;
+  const hasMetaDescription = !!(metaDescription && metaDescription.length > 20);
+
+  const points =
+    (hasBusinessName ? 30 : 0) +
+    (hasPhone ? 20 : 0) +
+    (hasEmail ? 20 : 0) +
+    (hasStreetAddress ? 15 : 0) +
+    (hasLocality ? 5 : 0) +
+    (hasSchemaName ? 5 : 0) +
+    (hasMetaDescription ? 5 : 0);
+
+  const score = Math.max(0, Math.min(100, points));
+  let confidence = 'low';
+  if (score >= 75) confidence = 'high';
+  else if (score >= 45) confidence = 'medium';
+
+  return {
+    score,
+    confidence,
+    signals: {
+      hasBusinessName,
+      hasPhone,
+      hasEmail,
+      hasStreetAddress,
+      hasLocality,
+      hasSchemaName,
+      hasMetaDescription,
+    },
+  };
+}
+
+async function extractBusinessInfo(html, domain) {
    const bodyText = html
      .replace(/<script[\s\S]*?<\/script>/gi, '')
      .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -1710,11 +1668,8 @@ const rawInput = decodeHTML(String(rawAddress));
    const cleanSchemaName = schema.name ? decodeHTML(schema.name) : null;
    const cleanOGSiteName = og.siteName ? decodeHTML(og.siteName) : null;
 
-   // 4b. Social links
-   const socials = extractSocialLinks(html);
-
-   // 4c. Address init + schema address parsing
-   let address = { street:'', city:'', state:'', zip:'' };
+  // 4b. Address init + schema address parsing
+  let address = { street:'', city:'', state:'', zip:'' };
    if (schema.address) {
      if (schema.address.street || schema.address.city) {
        address = {
@@ -1977,11 +1932,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
   // 10. Country detection
   const country = detectCountry(html, domain, schema.address, contact.phones);
 
-  // 11. Domain age — computed at endpoint level and injected, not here
-  // (placeholder filled in by endpoint after extractBusinessInfo returns)
-  const domainAge = { createdDate:null, updatedDate:null, expiresDate:null, ageInDays:null, ageText:null, registrar:null };
-
-  // 12. Meta description
+  // 11. Meta description
   const metaDescMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([\s\S]*?)["']/i);
   const metaDescription = metaDescMatch
     ? decodeHTML(metaDescMatch[1].trim())
@@ -1991,10 +1942,10 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
     ? decodeHTML(schema.description)
     : null;
 
-  // 13. Business type/industry from schema
+  // 12. Business type/industry from schema
   const businessType = schema.type || null;
 
-  return {
+  const normalizedBusiness = {
     businessName,
     rawTitle,
     metaDescription,
@@ -2003,12 +1954,6 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
     emails: contact.emails.slice(0, 3),
     address,
     country,
-    socials,
-    domainAge,
-    // Flat convenience fields for CSV/table consumers
-    domainAgeText: domainAge.ageText || null,
-    domainCreated: domainAge.createdDate ? domainAge.createdDate.substring(0, 10) : null,
-    registrar: domainAge.registrar || null,
     schema: {
       hasSchema: !!schema.name,
       rating: schema.rating,
@@ -2016,6 +1961,11 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
       hours: schema.hours.length > 0 ? schema.hours : null,
     },
     og: { siteName: og.siteName, image: og.image },
+  };
+
+  return {
+    ...normalizedBusiness,
+    strength: buildBusinessStrengthSignals(normalizedBusiness),
   };
 }
 
@@ -2072,11 +2022,10 @@ app.post('/api/extract-business', async (req, res) => {
   // No cache — always return live results
 
   try {
-    // Run DNS, HTTP fetch, AND domain age all in parallel — no sequential waiting
-    const [dnsResults, httpResults, domainAgeResult] = await Promise.all([
+    // Run DNS and HTTP fetch in parallel
+    const [dnsResults, httpResults] = await Promise.all([
       analyzeDNS(domain),
-      analyzeHTTPStatus(domain),
-      getDomainAge(domain)
+      analyzeHTTPStatus(domain)
     ]);
     const { result: httpStatus, html } = httpResults;
 
@@ -2096,18 +2045,13 @@ app.post('/api/extract-business', async (req, res) => {
     else if (httpStatus.statusCode >= 200 && httpStatus.statusCode < 400 && contentAnalysis.verdict === 'VALID') websiteStatus = 'ACTIVE';
     else websiteStatus = 'ISSUES';
 
-    // If site is dead/down/suspended, skip business extraction (reuse domainAgeResult from above)
+    // If site is dead/down/suspended, skip business extraction
     if (['DEAD', 'DOWN', 'SUSPENDED'].includes(websiteStatus)) {
-      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, socials: {}, domainAge: { ...domainAgeResult, ageFormatted: domainAgeResult.ageText || null }, domainAgeText: domainAgeResult.ageText || null, domainCreated: domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0,10) : null, registrar: domainAgeResult.registrar || null, metaDescription: null, businessType: null } });
+      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, metaDescription: null, businessType: null, strength: { score: 0, confidence: 'low', signals: { hasBusinessName:false, hasPhone:false, hasEmail:false, hasStreetAddress:false, hasLocality:false, hasSchemaName:false, hasMetaDescription:false } } } });
     }
 
     let business = await extractBusinessInfo(html, domain);
 
-    // Inject domain age (computed in parallel above)
-    business.domainAge     = { ...domainAgeResult, ageFormatted: domainAgeResult.ageText || null };
-    business.domainAgeText = domainAgeResult.ageText || null;
-    business.domainCreated = domainAgeResult.createdDate ? domainAgeResult.createdDate.substring(0, 10) : null;
-    business.registrar     = domainAgeResult.registrar || null;
 
     // Fetch contact page if street is missing (we need full address, city alone isn't enough)
     const needsContactPage = !business.address.street;
@@ -2125,6 +2069,8 @@ app.post('/api/extract-business', async (req, res) => {
         console.log(`  [CONTACT PAGE] merged address/phone from contact subpage`);
       }
     }
+
+    business.strength = buildBusinessStrengthSignals(business);
 
     console.log(`  -> ${websiteStatus} | ${business.businessName} | Phones:${business.phones.length} Emails:${business.emails.length} | ${business.country.name}`);
     const bizResult = { domain, websiteStatus, reasons: contentAnalysis.reasons, business };
@@ -2151,6 +2097,7 @@ app.get('/api/debug-domain-age', async (req, res) => {
 
   res.json({
     domain,
+
     success: !!result.createdDate,
     createdDate:  result.createdDate,
     ageText:      result.ageText,
