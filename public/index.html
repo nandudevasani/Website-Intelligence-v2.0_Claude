@@ -108,7 +108,7 @@
   <header class="header">
     <div class="header-badge"><span class="dot"></span> Intelligence Engine v3.1</div>
     <h1>Website Intelligence</h1>
-    <p>Domain analysis, content detection, business extraction & social signals.</p>
+    <p>Domain analysis, content detection, and strong business extraction.</p>
   </header>
   <div class="tabs">
     <button class="tab active" data-tab="single" onclick="switchTab('single')">Single Domain</button>
@@ -133,8 +133,7 @@
   </div>
   <div class="bulk-area" id="sec-biz">
     <textarea class="ta" id="biz-ta" placeholder="Enter domains for business extraction (max 100):&#10;bocasmilecenter.com&#10;millerandsonsplumbing.net" oninput="updateCt('biz-ta','biz-ct')"></textarea>
-    <div class="count" id="biz-ct">0 domains (max 100)</div>
-    <div class="btn-row">
+    <div class="count" id="biz-ct">0 domains (max 100)</div>    <div class="btn-row">
       <button class="btn btn-pur" id="biz-btn" onclick="doBiz()" style="flex:1">Extract Business Info</button>
       <button class="btn btn-sm btn-red" id="biz-cancel" onclick="cancelOp('biz')" style="display:none">⏹ Cancel</button>
     </div>
@@ -400,11 +399,9 @@ function renderBiz(res){
   const ok=res.filter(r=>r.businessName&&!r.error).length;
   let h='<div class="bsum">'+sumBox(res.length,'Total','--t1')+sumBox(ok,'Extracted','--grn')+sumBox(res.length-ok,'Failed/Empty','--red')+'</div>';
   h+='<div class="bact"><button class="btn btn-sm btn-csv" onclick="exportBizCSV()">⬇ Business CSV</button><button class="btn btn-sm btn-pur" onclick="exportCombinedCSV()">⬇ Combined CSV</button></div>';
-  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Country</th><th>Business Name</th><th>Street</th><th>City</th><th>State</th><th>ZIP</th><th>Phone</th><th>Email</th><th>Age</th><th>Socials</th></tr></thead><tbody>';
+  h+='<div class="btw"><table class="bt"><thead><tr><th>#</th><th>Domain</th><th>Status</th><th>Country</th><th>Business Name</th><th>Street</th><th>City</th><th>State</th><th>ZIP</th><th>Phone</th><th>Email</th></tr></thead><tbody>';
   res.forEach((r,i)=>{
     const a=r.address||{};
-    let soc='';
-    if(r.socials){['facebook','linkedin','instagram','twitter','youtube','tiktok','yelp','pinterest'].forEach(k=>{if(r.socials[k])soc+='<a class="social-link" href="'+E(r.socials[k])+'" target="_blank" rel="noopener">'+k.substring(0,2).toUpperCase()+'</a>'})}
     h+='<tr><td class="mono" style="font-size:.72rem;color:var(--t3)">'+(i+1)+'</td>';
     h+='<td><span class="bd">'+E(r.domain)+'</span>'+(r.retried?'<span style="font-size:.6rem;color:var(--org);margin-left:4px">↻</span>':'')+'</td>';
     h+='<td><span class="bsb '+(r.websiteStatus||'')+'">'+fmtS(r.websiteStatus||'UNKNOWN')+'</span></td>';
@@ -415,9 +412,7 @@ function renderBiz(res){
     h+='<td class="mono" style="font-size:.78rem">'+E(a.state||'—')+'</td>';
     h+='<td class="mono" style="font-size:.78rem">'+E(a.zip||'—')+'</td>';
     h+='<td class="mono" style="font-size:.76rem;white-space:nowrap">'+E(r.phones?.[0]||'—')+'</td>';
-    h+='<td class="mono" style="font-size:.72rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.emails?.[0]||'—')+'</td>';
-    h+='<td class="mono" style="font-size:.76rem">'+(r.domainAge?.ageFormatted||'—')+'</td>';
-    h+='<td>'+soc+'</td></tr>'});
+    h+='<td class="mono" style="font-size:.72rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(r.emails?.[0]||'—')+'</td></tr>'});
   h+='</tbody></table></div>';
   if(res.some(r=>r.retried))h+='<div class="retry-note">↻ = auto-retried after initial failure</div>';
   el.innerHTML=h;
@@ -438,9 +433,9 @@ function exportBulkCSV(){
 }
 function exportBizCSV(){
   if(!bizData?.length){showErr('No business results');return}
-  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Remarks','Reasons','Meta Description']);
-  bizData.forEach(r=>{const s=r.socials||{};const a=r.address||{};
-  csv+=cr([r.domain,fmtS(r.websiteStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.domainAge?.ageFormatted||'',r.reasons?.[0]||r.error||'',r.metaDescription||''])});
+  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Reasons','Meta Description']);
+  bizData.forEach(r=>{const a=r.address||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',r.reasons?.[0]||r.error||'',r.metaDescription||''])});
   dl('business-info-'+today+'.csv',csv);
 }
 function exportCombinedCSV(){
@@ -449,11 +444,13 @@ function exportCombinedCSV(){
   if(bulkData)bulkData.forEach(r=>map[r.domain]={...map[r.domain],...r,_b:1});
   if(bizData)bizData.forEach(r=>map[r.domain]={...map[r.domain],...r,_z:1});
   const all=Object.values(map);
-  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Facebook','LinkedIn','Instagram','Twitter','YouTube','TikTok','Yelp','Pinterest','Domain Age','Remarks','Reasons','Meta Description','Valid','HTTP Code','Word Count','Confidence','Redirect Target','Flags']);
-  all.forEach(r=>{const s=r.socials||{};const a=r.address||{};
-  csv+=cr([r.domain,fmtS(r.websiteStatus||r.overallStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',s.facebook||'',s.linkedin||'',s.instagram||'',s.twitter||'',s.youtube||'',s.tiktok||'',s.yelp||'',s.pinterest||'',r.domainAge?.ageFormatted||'',r.reasons?.[0]||r.error||'','',r.metaDescription||'',r._b?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; ')])});
+  let csv=cr(['Domain','Website Status','Country Code','Business Name','Street Address','City','State','Zip','Phone Number','Business Email','Business Type','Reasons','Meta Description','Valid','HTTP Code','Word Count','Confidence','Redirect Target','Flags']);
+  all.forEach(r=>{const a=r.address||{};
+  csv+=cr([r.domain,fmtS(r.websiteStatus||r.overallStatus||''),r.country?.code||'',r.businessName||'',a.street||'',a.city||'',a.state||'',a.zip||'',r.phones?.[0]||'',r.emails?.[0]||'',r.businessType||'',r.reasons?.[0]||r.error||'',r.metaDescription||'',r._b?(r.isGenuinelyValid?'TRUE':'FALSE'):'',r.statusCode||'',r.wordCount??'',r.confidence?r.confidence+'%':'',r.redirectInfo?.target||'',(r.flags||[]).join('; ')])});
   dl('combined-'+today+'.csv',csv);
 }
 </script>
 </body>
 </html>
+server.js
+server.js
