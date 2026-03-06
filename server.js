@@ -1131,6 +1131,21 @@ function extractStructuredAddress(html) {
     if (lm) { results.push({ raw: lm[1].trim() }); break; }
   }
 
+    // 7. Rendered address widgets used by site builders (Duda/Thryv/etc)
+  const renderedAddressBlocks = html.match(/<[^>]*(?:data-route=["']address["']|data-aid=["'][^"']*ADDRESS_RENDERED[^"']*["'])[^>]*>([\s\S]*?)<\/(?:h\d|p|div|span|address)>/gi) || [];
+  for (const block of renderedAddressBlocks) {
+    const text = decodeHTML(block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    if (text && /\b(?:[A-Z]{2}\s*\d{5}(?:-\d{4})?|\d{5}(?:-\d{4})?)\b/.test(text)) {
+      results.push({ raw: text });
+    }
+  }
+
+  // 8. PO Box style addresses (common on contact pages)
+  const poBoxMatches = bodyText.match(/(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*[A-Z0-9-]{1,20}\s*,?\s*[A-Za-z][A-Za-z\s.'-]{1,40}\s*,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?/gi) || [];
+  for (const po of poBoxMatches) {
+    results.push({ raw: po.trim() });
+  }
+
   return results;
 }
 
@@ -1440,8 +1455,19 @@ const rawInput = decodeHTML(String(rawAddress));
     .replace(/,+/g, ',')
     .replace(/^\s*,|,\s*$/g, '')
     .trim();
-  
- const cleanToken = (v = '') => String(v).replace(/^\s*,|,\s*$/g, '').replace(/\s+/g, ' ').trim();
+
+   // PO Box format: "P.O. Box 5745, Salem, OR 97304"
+  const poBoxFull = addr.match(/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*([A-Z0-9-]{1,20})\s*,\s*([A-Za-z][A-Za-z\s.'-]{1,40})\s*,\s*([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/i)
+    || addr.match(/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*([A-Z0-9-]{1,20})\s+([A-Za-z][A-Za-z\s.'-]{1,40})\s+([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/i);
+  if (poBoxFull) {
+    result.street = `P.O. Box ${poBoxFull[1].toUpperCase()}`;
+    result.city = poBoxFull[2].trim();
+    result.state = poBoxFull[3].toUpperCase();
+    result.zip = poBoxFull[4];
+    return result;
+  }
+ 
+  const cleanToken = (v = '') => String(v).replace(/^\s*,|,\s*$/g, '').replace(/\s+/g, ' ').trim();
    const stripPOBoxFromStreet = (street) => {
     const s = cleanToken(street);
     if (!s) return s;
