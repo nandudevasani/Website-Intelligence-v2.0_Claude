@@ -16,16 +16,19 @@ except Exception:  # pragma: no cover - optional dependency pathway
 def _merge_best(primary: dict, fallback: dict) -> dict:
     out = dict(primary or {})
     fallback = fallback or {}
+    name_source = "primary" if out.get("business_name") else "none"
 
     for key in ("business_name", "street_address", "city", "state", "zip_code"):
         if not out.get(key) and fallback.get(key):
             out[key] = fallback[key]
+            if key == "business_name":
+                name_source = "fallback"
 
     out["confidence_score"] = max(
         int(out.get("confidence_score", 0) or 0),
         int(fallback.get("confidence_score", 0) or 0),
     )
-    return out
+    return out, name_source
 
 
 def main() -> int:
@@ -47,7 +50,7 @@ def main() -> int:
         )
 
         fallback = extract_fallback_business_data(html, page_url) if use_fallback else {}
-        best = _merge_best(primary, fallback)
+        best, best_name_source = _merge_best(primary, fallback)
 
         response = {
             "ok": True,
@@ -55,6 +58,7 @@ def main() -> int:
             "fallback": fallback,
             "best": best,
             "used_fallback": bool(fallback),
+            "best_name_source": best_name_source,
         }
         sys.stdout.write(json.dumps(response))
         return 0

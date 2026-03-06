@@ -2,14 +2,17 @@
   "name": "website-intelligence-backend",
   "version": "2.0.0",
   "type": "module",
-  "description": "Domain analyzer — detect parked domains, shell sites, cross-domain redirects, coming soon pages, political campaigns & more.",
+  "description": "Domain analyzer \u2014 detect parked domains, shell sites, cross-domain redirects, coming soon pages, political campaigns & more.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "python:check": "python3 --version"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "python": ">=3.10.0"
   },
   "dependencies": {
     "express": "^4.18.2",

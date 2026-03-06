@@ -254,6 +254,8 @@ def extract_primary_address_components(text: str) -> Dict[str, Any]:
     }
     best_score = -1
 
+    global_csz = detect_city_state_zip(flattened)
+
     for idx, match in enumerate(street_matches):
         street = _clean_text(match.group(1))
         start = match.start()
@@ -261,6 +263,14 @@ def extract_primary_address_components(text: str) -> Dict[str, Any]:
         snippet = flattened[start:end]
 
         csz = detect_city_state_zip(snippet)
+        if not csz["zip_code"] and global_csz["zip_code"]:
+            csz = global_csz
+        elif not (csz["city"] and csz["state"]) and global_csz["city"] and global_csz["state"]:
+            csz = {
+                "city": csz["city"] or global_csz["city"],
+                "state": csz["state"] or global_csz["state"],
+                "zip_code": csz["zip_code"] or global_csz["zip_code"],
+            }
         score = 1
         if csz["zip_code"]:
             score += 3

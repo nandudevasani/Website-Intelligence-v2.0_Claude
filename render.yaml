@@ -3,10 +3,12 @@ services:
     name: website-intelligence
     runtime: node
     plan: free
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: npm install && python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
+      - key: PYTHON_EXTRACTOR_CMD
+        value: python3
