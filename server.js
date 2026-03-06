@@ -808,7 +808,19 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
 
   
   // Helper: clean trailing/leading junk from a name
-  const cleanName = (s) => s ? normalizeExtractedBusinessName(s.replace(/[•·|:–—\-]+$/, '').replace(/^[•·|:–—\-]+/, '').replace(/\s+/g, ' ').trim()) : s;
+  const cleanName = (s) => {
+    if (!s) return s;
+    let cleaned = s
+      .replace(/[•·|]+$/, '').replace(/^[•·|]+/, '')  // strip bullet/pipe at edges
+      .replace(/\s+/g, ' ').trim();
+    // Strip trailing text after em-dash/en-dash: "Genesee Community College—ANTI-TERRESTRIAL" → "Genesee Community College"
+    cleaned = cleaned.replace(/\s*[—–]\s*[A-Z][A-Za-z\s-]*$/, '').trim();
+    // Strip trailing taglines: "ASU engineering-driven health innovations improving lives" — if >5 words and last words are generic
+    cleaned = cleaned.replace(/\s+(engineering|technology|innovation|improving|building|creating|delivering|transforming|empowering|serving|advancing|providing|offering|leading|driving)[\s\-].{5,}$/i, '').trim();
+    // Strip trailing colon content: "Name: Tagline Here"
+    cleaned = cleaned.replace(/:\s+[A-Z].{10,}$/, '').trim();
+    return normalizeExtractedBusinessName(cleaned);
+  };
 
   // Helper: strip subtitle like "Name - A Fidelity Company"
   const stripSubtitle = (s) => {
@@ -845,6 +857,7 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
         // Proper business name signals
         if (/^[A-Z][a-z]/.test(p)) s += 5;                          // Title-cased
         if (/\b(LLC|Inc|Corp|Co|Ltd|Management|Systems|Mechanical|Plumbing|Service)\b/i.test(p)) s += 8;
+        if (/\b(University|College|Institute|Academy|School|Seminary|Polytechnic)\b/i.test(p)) s += 12;
         if (p.length >= 4 && p.length <= 50) s += 3;
         if (s > bestScore) { bestScore = s; best = p; }
       }
@@ -899,6 +912,8 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
             const hasPropName = /^[A-Z][a-z]/.test(p) || /['']s\b/.test(p);
             score += hasPropName ? 6 : 2;
           }
+          // Institution names (University, College, School, Institute, Academy)
+          if (/\b(University|College|Institute|Academy|School|Seminary|Polytechnic)\b/i.test(p)) score += 10;
 
           // Penalize generic service-only descriptions
           if (/^(hvac|plumbing|heating|cooling|electrical|roofing|cleaning|dental|legal|auto|real estate)\s+(service|solution|repair|company|specialist)/i.test(p)) score -= 4;
@@ -2087,8 +2102,12 @@ async function extractBusinessInfo(html, domain) {
       /^home$/i.test(t) ||
       /^(welcome|contact|about|services?|our services|our team|our work|my blog|blog|portfolio|gallery)$/i.test(t) ||
       /^(my|our)\s+(wordpress|blog|site|website|page)/i.test(t) ||
-      /\.(com|net|org|info|biz)$/i.test(t) ||
-      t.toLowerCase() === domain.toLowerCase()
+      /\.(com|net|org|info|biz|edu)$/i.test(t) ||
+      t.toLowerCase() === domain.toLowerCase() ||
+      // Names that look like scraped nav/menu items
+      /^(current|class|schedule|catalog|enrollment|registration|news|events|programs|departments)\b/i.test(t) ||
+      // Names that are just a concatenation of service keywords
+      /^(economic|research|development|enrollment|management|administration)\s+(research|development|center|management|office)\b/i.test(t)
     );
   };
 
@@ -2162,7 +2181,7 @@ const currentNameOverlap = countDomainOverlap(businessName);
 if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug || currentNameOverlap === 0) {
 
   // Scan all matches, pick the shortest clean one (avoids grabbing repeated carousel text)
-  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Solutions?|Repair|Removal|Junk\s+Removal|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners|Enterprises?|Construction|Restoration|Properties|Realty|Holdings|Builders?|Hauling|Disposal|Electric(?:al)?|Roofing|Heating|Cooling|Landscaping|Painting|Contracting|Agency|Consulting|Studio|Design|Media|Logistics|Moving|Storage|Cleaning|Flooring|Paving|Fencing|Welding|Towing|Auto|Dental|Legal|Financial|Insurance|Advisors?|Interiors?|Exteriors?|Renovations?|Inspections?|Demolition|Excavat(?:ing|ion))(?:[ \t]+LLC|\.?)?)/g;
+  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Solutions?|Repair|Removal|Junk\s+Removal|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners|Enterprises?|Construction|Restoration|Properties|Realty|Holdings|Builders?|Hauling|Disposal|Electric(?:al)?|Roofing|Heating|Cooling|Landscaping|Painting|Contracting|Agency|Consulting|Studio|Design|Media|Logistics|Moving|Storage|Cleaning|Flooring|Paving|Fencing|Welding|Towing|Auto|Dental|Legal|Financial|Insurance|Advisors?|Interiors?|Exteriors?|Renovations?|Inspections?|Demolition|Excavat(?:ing|ion)|University|College|Institute|Academy|School|Seminary|Polytechnic|Center|Centre|Foundation|Hospital|Clinic|Church|Ministry|Ministries|Museum|Library|Laboratory|Labs?)(?:[ \t]+LLC|\.?)?)/g;
 
   let nameCandidate = null;
   let bestCandidateScore = -1;
@@ -2179,14 +2198,24 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
     if (maxRepeat >= 3) continue;
 
+    // Skip candidates that look like page content/navigation/menu items
+    // e.g., "Current Class Schedules College Catalog Class Schedule Services"
+    if (/\b(schedule|catalog|current|class|syllabus|curriculum|registration|enrollment|calendar|semester|tuition|financial aid)\b/i.test(candidate) && !/\b(University|College|Institute|Academy|School)\b/i.test(candidate)) continue;
+    // Skip menu-like concatenated labels (multiple distinct service words without a proper name)
+    const serviceWordCount = (candidate.match(/\b(services?|solutions?|products?|features?|resources?|information|directory|portal|support|help|news|events?|programs?|departments?)\b/gi) || []).length;
+    if (serviceWordCount >= 2) continue;
+
     if (candidate.length > 5 && candidate.length < 80 && !isBoilerplateName(candidate)) {
       // Score: domain overlap is most important, then prefer LONGER names (full business name)
       // Then prefer names with more capitalized words (proper noun signal)
       const overlap = countDomainOverlap(candidate);
       const hasLegalEntity = typeof candidate === 'string' && /\b(?:LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
-      if (overlap === 0 && !hasLegalEntity) continue;
+      const hasInstitution = /\b(?:University|College|Institute|Academy|School|Seminary|Polytechnic|Hospital|Foundation)\b/i.test(candidate);
+      if (overlap === 0 && !hasLegalEntity && !hasInstitution) continue;
       const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
-      const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
+      let score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
+      // Boost institution names
+      if (hasInstitution) score += 30;
       if (score > bestCandidateScore) {
         nameCandidate = candidate;
         bestCandidateScore = score;
@@ -2344,6 +2373,40 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
   // 12. Business type/industry from schema
   const businessType = schema.type || null;
+
+  // === FINAL NAME SANITIZATION ===
+  // Strip trailing em-dash/en-dash content, taglines, and descriptive phrases
+  if (businessName && businessName !== domain) {
+    // "Genesee Community College—ANTI-TERRESTRIAL" → "Genesee Community College"
+    businessName = businessName.replace(/\s*[—–]\s*[A-Z][A-Za-z\s\-]{2,}$/, '').trim();
+    // "ASU engineering-driven health innovations improving lives" → "ASU"
+    // Only strip if the trailing part is lowercase generic words (not proper nouns like "New York")
+    businessName = businessName.replace(/\s+[a-z][a-z\s\-]{15,}$/i, (match) => {
+      // Keep it if it looks like a proper name part (e.g., " of Arkansas at Pine Bluff")
+      if (/\b(of|at|in|for|and|the)\s+[A-Z]/.test(match)) return match;
+      return '';
+    }).trim();
+    // Strip if name is excessively long (>60 chars) and has many words — likely scraped content
+    if (businessName.length > 60 && businessName.split(/\s+/).length > 8) {
+      // Try to find a natural break point
+      const shortened = businessName.replace(/\s+(Schedule|Catalog|Directory|Portal|Resources?|Information|Enrollment|Registration|Services?|TitleIX).*$/i, '').trim();
+      if (shortened.length > 3 && shortened.length < businessName.length) businessName = shortened;
+    }
+    // If name still has separator chars mid-name, take the first meaningful part
+    if (/[—–|]/.test(businessName) && businessName.length > 30) {
+      const parts = businessName.split(/\s*[—–|]\s*/).filter(p => p.length > 2);
+      if (parts.length >= 2) {
+        // Pick the part with the most domain overlap
+        let bestPart = parts[0];
+        let bestOverlap = countDomainOverlap(parts[0]);
+        for (let i = 1; i < parts.length; i++) {
+          const ov = countDomainOverlap(parts[i]);
+          if (ov > bestOverlap) { bestOverlap = ov; bestPart = parts[i]; }
+        }
+        businessName = bestPart;
+      }
+    }
+  }
 
   const normalizedBusiness = {
     businessName,
