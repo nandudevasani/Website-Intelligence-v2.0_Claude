@@ -808,7 +808,19 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
 
   
   // Helper: clean trailing/leading junk from a name
-  const cleanName = (s) => s ? normalizeExtractedBusinessName(s.replace(/[•·|:–—\-]+$/, '').replace(/^[•·|:–—\-]+/, '').replace(/\s+/g, ' ').trim()) : s;
+  const cleanName = (s) => {
+    if (!s) return s;
+    let cleaned = s
+      .replace(/[•·|]+$/, '').replace(/^[•·|]+/, '')  // strip bullet/pipe at edges
+      .replace(/\s+/g, ' ').trim();
+    // Strip trailing text after em-dash/en-dash: "Genesee Community College—ANTI-TERRESTRIAL" → "Genesee Community College"
+    cleaned = cleaned.replace(/\s*[—–]\s*[A-Z][A-Za-z\s-]*$/, '').trim();
+    // Strip trailing taglines: "ASU engineering-driven health innovations improving lives" — if >5 words and last words are generic
+    cleaned = cleaned.replace(/\s+(engineering|technology|innovation|improving|building|creating|delivering|transforming|empowering|serving|advancing|providing|offering|leading|driving)[\s\-].{5,}$/i, '').trim();
+    // Strip trailing colon content: "Name: Tagline Here"
+    cleaned = cleaned.replace(/:\s+[A-Z].{10,}$/, '').trim();
+    return normalizeExtractedBusinessName(cleaned);
+  };
 
   // Helper: strip subtitle like "Name - A Fidelity Company"
   const stripSubtitle = (s) => {
@@ -845,6 +857,7 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
         // Proper business name signals
         if (/^[A-Z][a-z]/.test(p)) s += 5;                          // Title-cased
         if (/\b(LLC|Inc|Corp|Co|Ltd|Management|Systems|Mechanical|Plumbing|Service)\b/i.test(p)) s += 8;
+        if (/\b(University|College|Institute|Academy|School|Seminary|Polytechnic)\b/i.test(p)) s += 12;
         if (p.length >= 4 && p.length <= 50) s += 3;
         if (s > bestScore) { bestScore = s; best = p; }
       }
@@ -899,6 +912,8 @@ function cleanBusinessName(rawTitle, ogSiteName, schemaName, domain, footerName)
             const hasPropName = /^[A-Z][a-z]/.test(p) || /['']s\b/.test(p);
             score += hasPropName ? 6 : 2;
           }
+          // Institution names (University, College, School, Institute, Academy)
+          if (/\b(University|College|Institute|Academy|School|Seminary|Polytechnic)\b/i.test(p)) score += 10;
 
           // Penalize generic service-only descriptions
           if (/^(hvac|plumbing|heating|cooling|electrical|roofing|cleaning|dental|legal|auto|real estate)\s+(service|solution|repair|company|specialist)/i.test(p)) score -= 4;
@@ -1034,44 +1049,222 @@ function extractContactInfo(html, bodyText) {
   return result;
 }
 
+// === STRUCTURED ADDRESS EXTRACTOR ===
+// Extracts address from HTML microdata, hCard, RDFa, and labeled sections
+
+function extractStructuredAddress(html) {
+  const results = [];
+
+  // 1. Microdata: itemprop="address" or itemtype PostalAddress
+  const microdataBlocks = html.match(/<[^>]*itemtype=["'][^"']*PostalAddress[^"']*["'][^>]*>[\s\S]*?(?:<\/[a-z]+>)/gi) || [];
+  for (const block of microdataBlocks) {
+    const addr = {};
+    const get = (prop) => {
+      const m = block.match(new RegExp('itemprop=["\']' + prop + '["\'][^>]*>([^<]+)', 'i'))
+        || block.match(new RegExp('itemprop=["\']' + prop + '["\'][^>]*content=["\']([^"\']+)', 'i'));
+      return m ? m[1].trim() : null;
+    };
+    addr.street = get('streetAddress');
+    addr.city = get('addressLocality');
+    addr.state = get('addressRegion');
+    addr.zip = get('postalCode');
+    if (addr.street || addr.city) results.push(addr);
+  }
+
+  // 2. itemprop attributes scattered (not wrapped in a PostalAddress block)
+  if (results.length === 0) {
+    const addr = {};
+    const getItp = (prop) => {
+      const m = html.match(new RegExp('itemprop=["\']' + prop + '["\'][^>]*>([^<]{2,60})', 'i'))
+        || html.match(new RegExp('itemprop=["\']' + prop + '["\'][^>]*content=["\']([^"\']{2,60})', 'i'));
+      return m ? m[1].trim() : null;
+    };
+    addr.street = getItp('streetAddress');
+    addr.city = getItp('addressLocality');
+    addr.state = getItp('addressRegion');
+    addr.zip = getItp('postalCode');
+    if (addr.street || addr.city) results.push(addr);
+  }
+
+  // 3. hCard / vCard: class="adr", class="street-address", class="locality"
+  const hcardBlock = html.match(/<[^>]*class=["'][^"']*\badr\b[^"']*["'][^>]*>[\s\S]*?(?:<\/(?:div|address|section|span|p)>)/gi) || [];
+  for (const block of hcardBlock) {
+    const addr = {};
+    const getClass = (cls) => {
+      const m = block.match(new RegExp('class=["\'][^"\']*\\b' + cls + '\\b[^"\']*["\'][^>]*>([^<]+)', 'i'));
+      return m ? m[1].trim() : null;
+    };
+    addr.street = getClass('street-address');
+    addr.city = getClass('locality');
+    addr.state = getClass('region');
+    addr.zip = getClass('postal-code');
+    if (addr.street || addr.city) results.push(addr);
+  }
+
+  // 4. <address> HTML element — often contains actual address
+  const addressTags = html.match(/<address[^>]*>([\s\S]*?)<\/address>/gi) || [];
+  for (const tag of addressTags) {
+    const text = tag.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    // Only use if it looks like it has an actual address (contains a number and either state code or ZIP)
+    if (/\d{1,6}\s+[A-Za-z]/.test(text) && (/\b[A-Z]{2}\b/.test(text) || /\d{5}/.test(text))) {
+      results.push({ raw: text });
+    }
+  }
+
+  // 5. Footer address extraction — look for address-like content in footer
+  const footerMatch = html.match(/<footer[^>]*>([\s\S]*?)<\/footer>/i);
+  if (footerMatch) {
+    const footerText = footerMatch[1].replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    // Full address in footer: "123 Main St, City, ST 12345"
+    const footerAddr = footerText.match(/(\d{1,6}\s+[A-Za-z][A-Za-z0-9\s.#'&/,-]{2,60}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:[,\s]+[A-Za-z][A-Za-z\s.'-]{1,40}[,\s]+[A-Z]{2}\s*\d{5}(?:-\d{4})?)?)/i);
+    if (footerAddr) results.push({ raw: footerAddr[0].trim() });
+  }
+
+  // 6. Labeled address patterns: "Address:", "Located at:", "Our office:", "Mailing Address:"
+  const bodyText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+  const labeledPatterns = [
+    /(?:Address|Located\s+at|Our\s+(?:office|location)|Mailing\s+Address|Office\s+Address|Physical\s+Address|Street\s+Address|Headquarters|HQ|Corporate\s+Office|Visit\s+Us(?:\s+at)?)[:\s]+(\d{1,6}\s+[A-Za-z][A-Za-z0-9\s.#'&/,\-]{2,85}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:[,\s]+[A-Za-z][A-Za-z\s.'-]{1,40}[,\s]+[A-Z]{2}\s*\d{5}(?:-\d{4})?)?)/i,
+    /(?:Address|Located\s+at|Our\s+(?:office|location)|Mailing\s+Address|Office\s+Address|Physical\s+Address)[:\s]+([A-Za-z0-9][A-Za-z0-9\s.#'&/,\-]{4,120}?[A-Z]{2}\s*\d{5}(?:-\d{4})?)/i,
+  ];
+  for (const pat of labeledPatterns) {
+    const lm = bodyText.match(pat);
+    if (lm) { results.push({ raw: lm[1].trim() }); break; }
+  }
+
+  return results;
+}
+
+// === BUSINESS NAME EXTRACTOR (ENHANCED) ===
+// Extract business name from additional HTML sources
+
+function extractEnhancedBusinessName(html) {
+  const candidates = [];
+
+  // 1. Logo alt text — very reliable business name source
+  const logoPatterns = [
+    /<(?:img|a)[^>]*class=["'][^"']*\blogo\b[^"']*["'][^>]*alt=["']([^"']{2,80})["']/i,
+    /<(?:img|a)[^>]*alt=["']([^"']{2,80})["'][^>]*class=["'][^"']*\blogo\b[^"']*["']/i,
+    /<(?:img|a)[^>]*id=["'][^"']*logo[^"']*["'][^>]*alt=["']([^"']{2,80})["']/i,
+    /<(?:img|a)[^>]*alt=["']([^"']{2,80})["'][^>]*id=["'][^"']*logo[^"']*["']/i,
+    /<img[^>]*class=["'][^"']*\bsite[-_]?logo\b[^"']*["'][^>]*alt=["']([^"']{2,80})["']/i,
+    /<img[^>]*class=["'][^"']*\bbrand\b[^"']*["'][^>]*alt=["']([^"']{2,80})["']/i,
+    /<img[^>]*class=["'][^"']*\bheader[-_]?logo\b[^"']*["'][^>]*alt=["']([^"']{2,80})["']/i,
+    /<img[^>]*class=["'][^"']*\bcustom[-_]?logo\b[^"']*["'][^>]*alt=["']([^"']{2,80})["']/i,
+  ];
+  for (const pat of logoPatterns) {
+    const m = html.match(pat);
+    if (m && m[1] && m[1].trim().length > 2) {
+      const name = m[1].trim().replace(/\s*logo\s*/gi, '').trim();
+      if (name.length > 2 && !/^(logo|image|img|banner|header|icon|photo|pic)$/i.test(name)) {
+        candidates.push({ name, source: 'logo-alt', priority: 8 });
+      }
+    }
+  }
+
+  // 2. aria-label on header/nav — often contains business name
+  const ariaMatch = html.match(/<(?:header|nav)[^>]*aria-label=["']([^"']{3,80})["']/i);
+  if (ariaMatch) {
+    const name = ariaMatch[1].trim().replace(/\s*(main\s+)?(navigation|menu|header)\s*/gi, '').trim();
+    if (name.length > 2 && !/^(main|navigation|menu|header|sidebar|footer|content)$/i.test(name)) {
+      candidates.push({ name, source: 'aria-label', priority: 6 });
+    }
+  }
+
+  // 3. meta application-name
+  const appNameMatch = html.match(/<meta[^>]*name=["']application-name["'][^>]*content=["']([^"']{2,80})["']/i);
+  if (appNameMatch) {
+    candidates.push({ name: appNameMatch[1].trim(), source: 'application-name', priority: 7 });
+  }
+
+  // 4. meta apple-mobile-web-app-title
+  const appleTitleMatch = html.match(/<meta[^>]*name=["']apple-mobile-web-app-title["'][^>]*content=["']([^"']{2,80})["']/i);
+  if (appleTitleMatch) {
+    candidates.push({ name: appleTitleMatch[1].trim(), source: 'apple-title', priority: 7 });
+  }
+
+  // 5. Twitter card site name
+  const twitterSiteMatch = html.match(/<meta[^>]*(?:name|property)=["']twitter:title["'][^>]*content=["']([^"']{2,80})["']/i);
+  if (twitterSiteMatch) {
+    candidates.push({ name: twitterSiteMatch[1].trim(), source: 'twitter-title', priority: 5 });
+  }
+
+  // 6. itemprop="name" on Organization/LocalBusiness (not inside script)
+  const itempropName = html.match(/<[^>]*itemprop=["']name["'][^>]*>([^<]{2,80})/i);
+  if (itempropName) {
+    const name = itempropName[1].trim();
+    if (name.length > 2 && !isBoilerplateName(name)) {
+      candidates.push({ name, source: 'itemprop-name', priority: 9 });
+    }
+  }
+
+  // 7. Copyright with full business name (anywhere in page, not just footer)
+  const copyrightMatch = html.match(/(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–]?\s*\d{0,4}\s*)?([A-Z][A-Za-z\s&'.,-]{2,60}?(?:LLC|Inc\.?|Corp\.?|Company|Co\.?|Ltd\.?|Group|Partners|Associates|Enterprises?))/i);
+  if (copyrightMatch) {
+    candidates.push({ name: copyrightMatch[1].trim(), source: 'copyright-legal', priority: 10 });
+  }
+
+  return candidates;
+}
+
 function extractSchemaOrg(html) {
-  const result = { name:null, phone:null, email:null, address:null, description:null, type:null, url:null, priceRange:null, rating:null, hours:[] };
+  const result = { name:null, phone:null, email:null, address:null, description:null, type:null, url:null, priceRange:null, rating:null, hours:[], legalName:null };
   const ldMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+
+  // Helper: recursively extract business-relevant items from nested JSON-LD
+  function processItem(item) {
+    if (!item || typeof item !== 'object') return;
+
+    if (item.name && !result.name) result.name = typeof item.name === 'string' ? item.name : null;
+    if (item.legalName && !result.legalName) result.legalName = item.legalName;
+    if (item.telephone && !result.phone) result.phone = item.telephone;
+    if (item.email && !result.email) result.email = item.email;
+    if (item.description && !result.description) result.description = typeof item.description === 'string' ? item.description : null;
+    if (item['@type'] && !result.type) result.type = Array.isArray(item['@type']) ? item['@type'][0] : item['@type'];
+    if (item.url && !result.url) result.url = item.url;
+    if (item.priceRange && !result.priceRange) result.priceRange = item.priceRange;
+    if (item.aggregateRating) result.rating = { value: item.aggregateRating.ratingValue, count: item.aggregateRating.reviewCount || item.aggregateRating.ratingCount };
+
+    // Address: handle nested PostalAddress, string, or location.address
+    const addrSource = item.address || item.location?.address;
+    if (addrSource && !result.address) {
+      const a = addrSource;
+      if (typeof a === 'string') result.address = { raw: a };
+      else result.address = {
+        raw: [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode, a.addressCountry].filter(Boolean).join(', '),
+        street: a.streetAddress || null,
+        city: a.addressLocality || null,
+        state: a.addressRegion || null,
+        zip: a.postalCode ? String(a.postalCode) : null,
+        country: a.addressCountry || null
+      };
+    }
+
+    // location may itself have name/phone if it's a Place
+    if (item.location && typeof item.location === 'object' && !Array.isArray(item.location)) {
+      if (item.location.name && !result.name) result.name = item.location.name;
+      if (item.location.telephone && !result.phone) result.phone = item.location.telephone;
+    }
+
+    if (item.openingHoursSpecification) {
+      const specs = Array.isArray(item.openingHoursSpecification) ? item.openingHoursSpecification : [item.openingHoursSpecification];
+      if (result.hours.length === 0) result.hours = specs.map(s => ({ days: s.dayOfWeek, opens: s.opens, closes: s.closes }));
+    }
+
+    // Recurse into department, subOrganization, mainEntity, member
+    for (const sub of ['department', 'subOrganization', 'mainEntity', 'member', 'provider', 'brand']) {
+      if (item[sub]) {
+        const subItems = Array.isArray(item[sub]) ? item[sub] : [item[sub]];
+        subItems.forEach(si => processItem(si));
+      }
+    }
+  }
 
   for (const block of ldMatches) {
     try {
       const jsonText = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
       const data = JSON.parse(jsonText);
       const items = Array.isArray(data) ? data : data['@graph'] ? data['@graph'] : [data];
-
-      for (const item of items) {
-        if (item.name && !result.name) result.name = item.name;
-        if (item.telephone && !result.phone) result.phone = item.telephone;
-        if (item.email && !result.email) result.email = item.email;
-        if (item.description && !result.description) result.description = item.description;
-        if (item['@type'] && !result.type) result.type = Array.isArray(item['@type']) ? item['@type'][0] : item['@type'];
-        if (item.url && !result.url) result.url = item.url;
-        if (item.priceRange && !result.priceRange) result.priceRange = item.priceRange;
-        if (item.aggregateRating) result.rating = { value: item.aggregateRating.ratingValue, count: item.aggregateRating.reviewCount || item.aggregateRating.ratingCount };
-
-        if (item.address && !result.address) {
-          const a = item.address;
-          if (typeof a === 'string') result.address = { raw: a };
-          else result.address = {
-            raw: [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode, a.addressCountry].filter(Boolean).join(', '),
-            street: a.streetAddress || null,
-            city: a.addressLocality || null,
-            state: a.addressRegion || null,
-            zip: a.postalCode || null,
-            country: a.addressCountry || null
-          };
-        }
-
-        if (item.openingHoursSpecification) {
-          const specs = Array.isArray(item.openingHoursSpecification) ? item.openingHoursSpecification : [item.openingHoursSpecification];
-          result.hours = specs.map(s => ({ days: s.dayOfWeek, opens: s.opens, closes: s.closes }));
-        }
-      }
+      for (const item of items) processItem(item);
     } catch (e) { /* ignore bad JSON-LD */ }
   }
   return result;
@@ -1807,6 +2000,12 @@ async function extractBusinessInfo(html, domain) {
    // 1b. Social signals extraction
    const socialSignals = extractSocialSignals(html, schema);
 
+   // 1c. Structured address extraction (microdata, hCard, <address>, footer, labeled patterns)
+   const structuredAddresses = extractStructuredAddress(html);
+
+   // 1d. Enhanced business name sources (logo alt, aria-label, meta, itemprop, copyright)
+   const enhancedNames = extractEnhancedBusinessName(html);
+
    // 2. Open Graph meta tags
    const og = extractOGMeta(html);
 
@@ -1903,8 +2102,12 @@ async function extractBusinessInfo(html, domain) {
       /^home$/i.test(t) ||
       /^(welcome|contact|about|services?|our services|our team|our work|my blog|blog|portfolio|gallery)$/i.test(t) ||
       /^(my|our)\s+(wordpress|blog|site|website|page)/i.test(t) ||
-      /\.(com|net|org|info|biz)$/i.test(t) ||
-      t.toLowerCase() === domain.toLowerCase()
+      /\.(com|net|org|info|biz|edu)$/i.test(t) ||
+      t.toLowerCase() === domain.toLowerCase() ||
+      // Names that look like scraped nav/menu items
+      /^(current|class|schedule|catalog|enrollment|registration|news|events|programs|departments)\b/i.test(t) ||
+      // Names that are just a concatenation of service keywords
+      /^(economic|research|development|enrollment|management|administration)\s+(research|development|center|management|office)\b/i.test(t)
     );
   };
 
@@ -1918,6 +2121,35 @@ async function extractBusinessInfo(html, domain) {
   // Also fall back to H1 if name looks weak
   if (looksLikeWeakName(businessName) && cleanH1 && cleanH1.length > 2 && cleanH1.length < 90 && !isBoilerplateName(cleanH1)) {
     businessName = cleanH1;
+  }
+
+  // Enhanced name sources: logo alt, itemprop, copyright, aria-label, meta app-name
+  // Use schema legalName as a high-priority source
+  if (schema.legalName && !isBoilerplateName(schema.legalName) && schema.legalName.length > 2 && schema.legalName.length < 80) {
+    const legalOverlap = countDomainOverlap(schema.legalName);
+    const currentOverlap = countDomainOverlap(businessName);
+    if (legalOverlap > currentOverlap || looksLikeWeakName(businessName)) {
+      businessName = normalizeExtractedBusinessName(schema.legalName);
+    }
+  }
+
+  // Try enhanced name candidates when current name is weak or has no domain overlap
+  if (looksLikeWeakName(businessName) || countDomainOverlap(businessName) === 0 || businessName === domain) {
+    // Sort by priority descending
+    const sortedCandidates = enhancedNames
+      .filter(c => c.name && c.name.length > 2 && c.name.length < 80 && !isBoilerplateName(c.name))
+      .sort((a, b) => b.priority - a.priority);
+
+    for (const candidate of sortedCandidates) {
+      const cOverlap = countDomainOverlap(candidate.name);
+      const currentOverlap = countDomainOverlap(businessName);
+      // Prefer candidates with domain overlap or legal entity suffixes
+      const hasLegalSuffix = /\b(?:LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company|Co\.?|Group|Partners|Associates|Enterprises?)\b/i.test(candidate.name);
+      if (cOverlap > currentOverlap || (hasLegalSuffix && cOverlap >= currentOverlap) || looksLikeWeakName(businessName)) {
+        businessName = normalizeExtractedBusinessName(candidate.name);
+        break;
+      }
+    }
   }
 
    // Fallback: if cleanBusinessName returned nothing, use the domain
@@ -1949,7 +2181,7 @@ const currentNameOverlap = countDomainOverlap(businessName);
 if (!businessName || businessName.length < 5 || businessName.toLowerCase() === domain.toLowerCase() || nameIsSlug || currentNameOverlap === 0) {
 
   // Scan all matches, pick the shortest clean one (avoids grabbing repeated carousel text)
-  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Solutions?|Repair|Removal|Junk\s+Removal|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners|Enterprises?|Construction|Restoration|Properties|Realty|Holdings|Builders?|Hauling|Disposal|Electric(?:al)?|Roofing|Heating|Cooling|Landscaping|Painting|Contracting|Agency|Consulting|Studio|Design|Media|Logistics|Moving|Storage|Cleaning|Flooring|Paving|Fencing|Welding|Towing|Auto|Dental|Legal|Financial|Insurance|Advisors?|Interiors?|Exteriors?|Renovations?|Inspections?|Demolition|Excavat(?:ing|ion))(?:[ \t]+LLC|\.?)?)/g;
+  const nameRegex = /([A-Z][A-Za-z0-9&'.]{0,40}(?:[ \t]+[A-Za-z0-9&'.]+){0,6}[ \t]+(?:LLC|Inc\.?|Corp\.?|Corporation|Company|Services?|Solutions?|Repair|Removal|Junk\s+Removal|Plumbing|Mechanical|Management|Systems|Associates|Group|Partners|Enterprises?|Construction|Restoration|Properties|Realty|Holdings|Builders?|Hauling|Disposal|Electric(?:al)?|Roofing|Heating|Cooling|Landscaping|Painting|Contracting|Agency|Consulting|Studio|Design|Media|Logistics|Moving|Storage|Cleaning|Flooring|Paving|Fencing|Welding|Towing|Auto|Dental|Legal|Financial|Insurance|Advisors?|Interiors?|Exteriors?|Renovations?|Inspections?|Demolition|Excavat(?:ing|ion)|University|College|Institute|Academy|School|Seminary|Polytechnic|Center|Centre|Foundation|Hospital|Clinic|Church|Ministry|Ministries|Museum|Library|Laboratory|Labs?)(?:[ \t]+LLC|\.?)?)/g;
 
   let nameCandidate = null;
   let bestCandidateScore = -1;
@@ -1966,14 +2198,24 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
     if (maxRepeat >= 3) continue;
 
+    // Skip candidates that look like page content/navigation/menu items
+    // e.g., "Current Class Schedules College Catalog Class Schedule Services"
+    if (/\b(schedule|catalog|current|class|syllabus|curriculum|registration|enrollment|calendar|semester|tuition|financial aid)\b/i.test(candidate) && !/\b(University|College|Institute|Academy|School)\b/i.test(candidate)) continue;
+    // Skip menu-like concatenated labels (multiple distinct service words without a proper name)
+    const serviceWordCount = (candidate.match(/\b(services?|solutions?|products?|features?|resources?|information|directory|portal|support|help|news|events?|programs?|departments?)\b/gi) || []).length;
+    if (serviceWordCount >= 2) continue;
+
     if (candidate.length > 5 && candidate.length < 80 && !isBoilerplateName(candidate)) {
       // Score: domain overlap is most important, then prefer LONGER names (full business name)
       // Then prefer names with more capitalized words (proper noun signal)
       const overlap = countDomainOverlap(candidate);
       const hasLegalEntity = typeof candidate === 'string' && /\b(?:LLC|Inc\.?|Corp\.?|Corporation|Ltd|Company)\b/i.test(candidate);
-      if (overlap === 0 && !hasLegalEntity) continue;
+      const hasInstitution = /\b(?:University|College|Institute|Academy|School|Seminary|Polytechnic|Hospital|Foundation)\b/i.test(candidate);
+      if (overlap === 0 && !hasLegalEntity && !hasInstitution) continue;
       const capWords = (candidate.match(/\b[A-Z][a-z]/g) || []).length;
-      const score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
+      let score = overlap * 100 + capWords * 5 + Math.min(candidate.length, 50);
+      // Boost institution names
+      if (hasInstitution) score += 30;
       if (score > bestCandidateScore) {
         nameCandidate = candidate;
         bestCandidateScore = score;
@@ -2076,6 +2318,43 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
     }
   }
 
+  // Structured address fallback: use microdata, hCard, <address>, footer, labeled patterns
+  if (!address.street && structuredAddresses.length > 0) {
+    for (const sa of structuredAddresses) {
+      if (sa.raw) {
+        const parsed = parseUSAddress(sa.raw);
+        if (parsed.street && parsed.street.length > 5) {
+          // Validate: reject body-text false positives
+          const streetWords = parsed.street.split(/\s+/);
+          const nonAddrWords = /^(of|with|the|for|and|or|but|why|how|when|what|that|this|to|in|on|at|by|from|years|days|months|reasons|ways|steps|things|tips|over|under|more|less|than|our|your|we|us|my|their)$/i;
+          if (streetWords.length < 3 || !nonAddrWords.test(streetWords[2])) {
+            if (!address.street) address.street = parsed.street;
+            if (!address.city && parsed.city) address.city = parsed.city;
+            if (!address.state && parsed.state) address.state = parsed.state;
+            if (!address.zip && parsed.zip) address.zip = parsed.zip;
+            break;
+          }
+        }
+      } else if (sa.street || sa.city) {
+        // Structured fields from microdata/hCard
+        if (!address.street && sa.street) address.street = sa.street;
+        if (!address.city && sa.city) address.city = sa.city;
+        if (!address.state && sa.state) address.state = sa.state;
+        if (!address.zip && sa.zip) address.zip = sa.zip ? String(sa.zip) : '';
+        break;
+      }
+    }
+  }
+
+  // Fill in missing city/state/zip from structured sources even if we have a street
+  if (address.street && (!address.city || !address.state)) {
+    for (const sa of structuredAddresses) {
+      if (sa.city && !address.city) address.city = sa.city;
+      if (sa.state && !address.state) address.state = sa.state;
+      if (sa.zip && !address.zip) address.zip = String(sa.zip);
+    }
+  }
+
   // Ensure ZIP preserves leading zeros
   if (address.zip && /^\d{4}$/.test(address.zip)) address.zip = '0' + address.zip;
 
@@ -2094,6 +2373,40 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
 
   // 12. Business type/industry from schema
   const businessType = schema.type || null;
+
+  // === FINAL NAME SANITIZATION ===
+  // Strip trailing em-dash/en-dash content, taglines, and descriptive phrases
+  if (businessName && businessName !== domain) {
+    // "Genesee Community College—ANTI-TERRESTRIAL" → "Genesee Community College"
+    businessName = businessName.replace(/\s*[—–]\s*[A-Z][A-Za-z\s\-]{2,}$/, '').trim();
+    // "ASU engineering-driven health innovations improving lives" → "ASU"
+    // Only strip if the trailing part is lowercase generic words (not proper nouns like "New York")
+    businessName = businessName.replace(/\s+[a-z][a-z\s\-]{15,}$/i, (match) => {
+      // Keep it if it looks like a proper name part (e.g., " of Arkansas at Pine Bluff")
+      if (/\b(of|at|in|for|and|the)\s+[A-Z]/.test(match)) return match;
+      return '';
+    }).trim();
+    // Strip if name is excessively long (>60 chars) and has many words — likely scraped content
+    if (businessName.length > 60 && businessName.split(/\s+/).length > 8) {
+      // Try to find a natural break point
+      const shortened = businessName.replace(/\s+(Schedule|Catalog|Directory|Portal|Resources?|Information|Enrollment|Registration|Services?|TitleIX).*$/i, '').trim();
+      if (shortened.length > 3 && shortened.length < businessName.length) businessName = shortened;
+    }
+    // If name still has separator chars mid-name, take the first meaningful part
+    if (/[—–|]/.test(businessName) && businessName.length > 30) {
+      const parts = businessName.split(/\s*[—–|]\s*/).filter(p => p.length > 2);
+      if (parts.length >= 2) {
+        // Pick the part with the most domain overlap
+        let bestPart = parts[0];
+        let bestOverlap = countDomainOverlap(parts[0]);
+        for (let i = 1; i < parts.length; i++) {
+          const ov = countDomainOverlap(parts[i]);
+          if (ov > bestOverlap) { bestOverlap = ov; bestPart = parts[i]; }
+        }
+        businessName = bestPart;
+      }
+    }
+  }
 
   const normalizedBusiness = {
     businessName,
@@ -2130,17 +2443,19 @@ async function fetchContactPage(domain, homepageHtml) {
       '/find-us', '/find-me', '/location', '/locations',
       '/get-in-touch', '/reach-us', '/our-location',
       '/contact-real-estate', '/contact-information',
+      '/our-team', '/company', '/info', '/our-company',
+      '/office', '/directions', '/visit', '/visit-us',
     ];
 
-    // First: try to find a contact link directly in the homepage HTML
-    const linkMatches = homepageHtml.match(/href=["']([^"']*(?:contact|about|find|location|reach)[^"']{0,30})["']/gi) || [];
+    // First: try to find a contact/about/location link directly in the homepage HTML
+    const linkMatches = homepageHtml.match(/href=["']([^"']*(?:contact|about|find|location|reach|visit|office|direction|company|team|info)[^"']{0,30})["']/gi) || [];
     const foundSlugs = linkMatches
       .map(m => { const hm = m.match(/href=["']([^"']+)["']/i); return hm ? hm[1] : null; })
       .filter(h => h && h.startsWith('/') && h.length > 1 && h.length < 60)
       .map(h => h.split('?')[0].split('#')[0]);  // strip query/hash
 
     // Deduplicate and combine: found links first, then known slugs
-    const toTry = [...new Set([...foundSlugs, ...contactSlugs])].slice(0, 6);
+    const toTry = [...new Set([...foundSlugs, ...contactSlugs])].slice(0, 8);
 
     const hdrs = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -2204,8 +2519,8 @@ app.post('/api/extract-business', async (req, res) => {
     let business = await extractBusinessInfo(html, domain);
 
 
-    // Fetch contact page if street is missing (we need full address, city alone isn't enough)
-    const needsContactPage = !business.address.street;
+    // Fetch contact page if street or key data is missing
+    const needsContactPage = !business.address.street || business.phones.length === 0 || business.emails.length === 0;
     if (needsContactPage) {
       const contactHtml = await fetchContactPage(domain, html);
       if (contactHtml) {
