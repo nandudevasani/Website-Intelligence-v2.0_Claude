@@ -1077,6 +1077,148 @@ function extractSchemaOrg(html) {
   return result;
 }
 
+// === SOCIAL SIGNAL EXTRACTOR ===
+// Extracts social media profile links from HTML
+
+const SOCIAL_PLATFORMS = {
+  facebook:  { domain: 'facebook.com',    label: 'Facebook',   icon: 'fb' },
+  instagram: { domain: 'instagram.com',   label: 'Instagram',  icon: 'ig' },
+  twitter:   { domain: 'twitter.com',     label: 'Twitter/X',  icon: 'tw' },
+  x:         { domain: 'x.com',           label: 'Twitter/X',  icon: 'tw' },
+  linkedin:  { domain: 'linkedin.com',    label: 'LinkedIn',   icon: 'li' },
+  youtube:   { domain: 'youtube.com',     label: 'YouTube',    icon: 'yt' },
+  tiktok:    { domain: 'tiktok.com',      label: 'TikTok',     icon: 'tt' },
+  pinterest: { domain: 'pinterest.com',   label: 'Pinterest',  icon: 'pt' },
+  yelp:      { domain: 'yelp.com',        label: 'Yelp',       icon: 'yp' },
+  bbb:       { domain: 'bbb.org',         label: 'BBB',        icon: 'bbb' },
+  nextdoor:  { domain: 'nextdoor.com',    label: 'Nextdoor',   icon: 'nd' },
+  github:    { domain: 'github.com',      label: 'GitHub',     icon: 'gh' },
+  threads:   { domain: 'threads.net',     label: 'Threads',    icon: 'th' },
+  snapchat:  { domain: 'snapchat.com',    label: 'Snapchat',   icon: 'sc' },
+  whatsapp:  { domain: 'wa.me',           label: 'WhatsApp',   icon: 'wa' },
+  telegram:  { domain: 't.me',            label: 'Telegram',   icon: 'tg' },
+  vimeo:     { domain: 'vimeo.com',       label: 'Vimeo',      icon: 'vm' },
+  tumblr:    { domain: 'tumblr.com',      label: 'Tumblr',     icon: 'tb' },
+  reddit:    { domain: 'reddit.com',      label: 'Reddit',     icon: 'rd' },
+  googlebiz: { domain: 'google.com/maps', label: 'Google Business', icon: 'gb' },
+  houzz:     { domain: 'houzz.com',       label: 'Houzz',      icon: 'hz' },
+  angieslist:{ domain: 'angi.com',        label: 'Angi',       icon: 'ag' },
+  thumbtack: { domain: 'thumbtack.com',   label: 'Thumbtack',  icon: 'tt2' },
+};
+
+function extractSocialSignals(html, schema) {
+  const signals = {};
+
+  // 1. Extract from Schema.org sameAs (most reliable)
+  const ldMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (const block of ldMatches) {
+    try {
+      const jsonText = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+      const data = JSON.parse(jsonText);
+      const items = Array.isArray(data) ? data : data['@graph'] ? data['@graph'] : [data];
+      for (const item of items) {
+        const sameAs = item.sameAs;
+        if (sameAs) {
+          const urls = Array.isArray(sameAs) ? sameAs : [sameAs];
+          urls.forEach(url => { if (typeof url === 'string') classifySocialUrl(url, signals); });
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Extract from <a href="..."> links containing social media domains
+  const linkMatches = html.match(/<a\s[^>]*href=["']([^"']+)["'][^>]*>/gi) || [];
+  for (const tag of linkMatches) {
+    const hrefMatch = tag.match(/href=["']([^"']+)["']/i);
+    if (hrefMatch) {
+      classifySocialUrl(hrefMatch[1], signals);
+    }
+  }
+
+  // 3. Extract from og:see_also or meta social tags
+  const metaSocial = html.match(/<meta[^>]*(?:property|name)=["'][^"']*social[^"']*["'][^>]*content=["']([^"']+)["']/gi) || [];
+  metaSocial.forEach(m => {
+    const cm = m.match(/content=["']([^"']+)["']/i);
+    if (cm) classifySocialUrl(cm[1], signals);
+  });
+
+  // 4. Extract Google Business Profile from map embeds or g.page links
+  const gPageMatch = html.match(/https?:\/\/g\.page\/[^\s"'<>]+/gi) || [];
+  gPageMatch.forEach(url => {
+    if (!signals.googlebiz) signals.googlebiz = { platform: 'Google Business', url: url.replace(/["'>\s].*/,''), source: 'gpage' };
+  });
+
+  // 5. Extract from Google Maps links
+  const gMapsMatch = html.match(/https?:\/\/(?:www\.)?google\.com\/maps\/place\/[^\s"'<>]+/gi) || [];
+  gMapsMatch.forEach(url => {
+    if (!signals.googlebiz) signals.googlebiz = { platform: 'Google Business', url: url.replace(/["'>\s].*/,''), source: 'maps' };
+  });
+
+  // Convert to clean array format
+  const result = [];
+  for (const [key, val] of Object.entries(signals)) {
+    const platform = SOCIAL_PLATFORMS[key];
+    result.push({
+      platform: platform?.label || val.platform || key,
+      url: val.url,
+      icon: platform?.icon || key,
+    });
+  }
+
+  return result;
+}
+
+function classifySocialUrl(url, signals) {
+  if (!url || typeof url !== 'string') return;
+
+  // Skip share/intent/sharer links — these are sharing widgets, not profile links
+  if (/\/share[r]?\b|\/intent\/|\/sharer\.php|\/dialog\/share|AddThis|addtoany/i.test(url)) return;
+  // Skip tracking pixels, SDK, widget, and plugin URLs
+  if (/\/widgets?\b|\/plugins?\b|\/sdk|\/badge|connect\.facebook|platform\.twitter|platform\.linkedin/i.test(url)) return;
+
+  const urlLower = url.toLowerCase();
+
+  for (const [key, platform] of Object.entries(SOCIAL_PLATFORMS)) {
+    if (urlLower.includes(platform.domain)) {
+      // For x.com/twitter, merge under the same key
+      const normalizedKey = key === 'x' ? 'twitter' : key;
+
+      // Skip root domain links without a profile path (e.g., "https://facebook.com")
+      try {
+        const parsed = new URL(url.startsWith('http') ? url : 'https://' + url);
+        const pathParts = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+
+        // Google maps special handling — always allow
+        if (key === 'googlebiz') {
+          if (!signals[normalizedKey]) signals[normalizedKey] = { platform: platform.label, url, source: 'link' };
+          return;
+        }
+
+        // WhatsApp / Telegram — path is optional (wa.me/1234567890)
+        if (key === 'whatsapp' || key === 'telegram') {
+          if (!signals[normalizedKey]) signals[normalizedKey] = { platform: platform.label, url, source: 'link' };
+          return;
+        }
+
+        // Must have at least one path segment (username/page)
+        if (pathParts.length === 0) return;
+
+        // Skip generic paths that aren't profiles
+        const genericPaths = ['help', 'about', 'terms', 'privacy', 'policy', 'legal', 'login', 'signup', 'register', 'settings', 'explore', 'search', 'hashtag', 'watch', 'trending'];
+        if (genericPaths.includes(pathParts[0].toLowerCase())) return;
+
+      } catch {
+        // If URL parsing fails, still accept it
+      }
+
+      if (!signals[normalizedKey]) {
+        signals[normalizedKey] = { platform: platform.label, url, source: 'link' };
+      }
+      return;
+    }
+  }
+}
+
 function parseUSAddress(rawAddress) {
   const result = { street: '', city: '', state: '', zip: '' };
   if (!rawAddress) return result;
@@ -1606,7 +1748,7 @@ const rawInput = decodeHTML(String(rawAddress));
  }
  
  
-function buildBusinessStrengthSignals({ businessName, phones, emails, address, schema, metaDescription }) {
+function buildBusinessStrengthSignals({ businessName, phones, emails, address, schema, metaDescription, socialSignals }) {
   const normalizedName = (businessName || '').trim();
   const hasBusinessName = normalizedName.length >= 3 && !isBoilerplateName(normalizedName);
   const hasPhone = Array.isArray(phones) && phones.length > 0;
@@ -1615,15 +1757,18 @@ function buildBusinessStrengthSignals({ businessName, phones, emails, address, s
   const hasLocality = !!(address?.city || address?.state || address?.zip);
   const hasSchemaName = !!schema?.hasSchema;
   const hasMetaDescription = !!(metaDescription && metaDescription.length > 20);
+  const hasSocialPresence = Array.isArray(socialSignals) && socialSignals.length > 0;
+  const socialCount = Array.isArray(socialSignals) ? socialSignals.length : 0;
 
   const points =
-    (hasBusinessName ? 30 : 0) +
-    (hasPhone ? 20 : 0) +
-    (hasEmail ? 20 : 0) +
-    (hasStreetAddress ? 15 : 0) +
+    (hasBusinessName ? 25 : 0) +
+    (hasPhone ? 18 : 0) +
+    (hasEmail ? 17 : 0) +
+    (hasStreetAddress ? 13 : 0) +
     (hasLocality ? 5 : 0) +
     (hasSchemaName ? 5 : 0) +
-    (hasMetaDescription ? 5 : 0);
+    (hasMetaDescription ? 5 : 0) +
+    (hasSocialPresence ? Math.min(12, socialCount * 4) : 0);
 
   const score = Math.max(0, Math.min(100, points));
   let confidence = 'low';
@@ -1641,6 +1786,8 @@ function buildBusinessStrengthSignals({ businessName, phones, emails, address, s
       hasLocality,
       hasSchemaName,
       hasMetaDescription,
+      hasSocialPresence,
+      socialCount,
     },
   };
 }
@@ -1656,6 +1803,9 @@ async function extractBusinessInfo(html, domain) {
 
    // 1. Schema.org JSON-LD (most structured data source)
    const schema = extractSchemaOrg(html);
+
+   // 1b. Social signals extraction
+   const socialSignals = extractSocialSignals(html, schema);
 
    // 2. Open Graph meta tags
    const og = extractOGMeta(html);
@@ -1961,6 +2111,7 @@ if (!businessName || businessName.length < 5 || businessName.toLowerCase() === d
       hours: schema.hours.length > 0 ? schema.hours : null,
     },
     og: { siteName: og.siteName, image: og.image },
+    socialSignals,
   };
 
   return {
@@ -2047,7 +2198,7 @@ app.post('/api/extract-business', async (req, res) => {
 
     // If site is dead/down/suspended, skip business extraction
     if (['DEAD', 'DOWN', 'SUSPENDED'].includes(websiteStatus)) {
-      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, metaDescription: null, businessType: null, strength: { score: 0, confidence: 'low', signals: { hasBusinessName:false, hasPhone:false, hasEmail:false, hasStreetAddress:false, hasLocality:false, hasSchemaName:false, hasMetaDescription:false } } } });
+      return res.json({ domain, websiteStatus, reasons: contentAnalysis.reasons, business: { businessName: '', phones: [], emails: [], address: { street:'', city:'', state:'', zip:'' }, country: { code:'UNKNOWN', name:'Unknown', confidence:'none' }, metaDescription: null, businessType: null, socialSignals: [], strength: { score: 0, confidence: 'low', signals: { hasBusinessName:false, hasPhone:false, hasEmail:false, hasStreetAddress:false, hasLocality:false, hasSchemaName:false, hasMetaDescription:false, hasSocialPresence:false, socialCount:0 } } } });
     }
 
     let business = await extractBusinessInfo(html, domain);
@@ -2066,13 +2217,20 @@ app.post('/api/extract-business', async (req, res) => {
         if (!business.address.zip    && contactBusiness.address.zip)    business.address.zip    = contactBusiness.address.zip;
         if (business.phones.length === 0 && contactBusiness.phones.length > 0) business.phones = contactBusiness.phones;
         if (business.emails.length === 0 && contactBusiness.emails.length > 0) business.emails = contactBusiness.emails;
-        console.log(`  [CONTACT PAGE] merged address/phone from contact subpage`);
+        // Merge social signals from contact page (add any new platforms not already found)
+        if (contactBusiness.socialSignals && contactBusiness.socialSignals.length > 0) {
+          const existingPlatforms = new Set(business.socialSignals.map(s => s.platform));
+          contactBusiness.socialSignals.forEach(s => {
+            if (!existingPlatforms.has(s.platform)) business.socialSignals.push(s);
+          });
+        }
+        console.log(`  [CONTACT PAGE] merged address/phone/social from contact subpage`);
       }
     }
 
     business.strength = buildBusinessStrengthSignals(business);
 
-    console.log(`  -> ${websiteStatus} | ${business.businessName} | Phones:${business.phones.length} Emails:${business.emails.length} | ${business.country.name}`);
+    console.log(`  -> ${websiteStatus} | ${business.businessName} | Phones:${business.phones.length} Emails:${business.emails.length} Social:${business.socialSignals?.length || 0} | ${business.country.name}`);
     const bizResult = { domain, websiteStatus, reasons: contentAnalysis.reasons, business };
     res.json(bizResult);
   } catch (err) {
