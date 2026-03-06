@@ -442,7 +442,7 @@ function analyzeContent(html, domain, finalUrl) {
     // ── Real business override ──
     // Even a minimal real business leaves traces: phone, email, or WhatsApp.
     // If ANY of these exist, the site belongs to a real business — not a true shell.
-    const hasPhone   = /(?:tel:|href=["']tel:|(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})/i.test(html);
+    const hasPhone   = /(?:tel:|href=["']tel:|\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b)/i.test(html);
     const hasEmail   = /mailto:[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i.test(html);
     const hasWhatsApp = /wa\.me\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:/i.test(html);
     const realBusinessSignals = [hasPhone, hasEmail, hasWhatsApp].filter(Boolean);
@@ -1122,30 +1122,61 @@ function extractStructuredAddress(html) {
 
   // 6. Labeled address patterns: "Address:", "Located at:", "Our office:", "Mailing Address:"
   const bodyText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+  const bodyTextWithBreaks = decodeHTML(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<br\s*\/?\s*>/gi, '\n')
+      .replace(/<\/(?:p|div|section|article|li|h\d|footer|address)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+  );
+
+  const addRawCandidate = (value) => {
+    if (!value) return;
+    const cleaned = decodeHTML(value).replace(/\s+/g, ' ').trim();
+    if (!cleaned || cleaned.length < 8) return;
+    if (!results.some(r => r.raw && r.raw.toLowerCase() === cleaned.toLowerCase())) {
+      results.push({ raw: cleaned });
+    }
+  };
+
   const labeledPatterns = [
     /(?:Address|Located\s+at|Our\s+(?:office|location)|Mailing\s+Address|Office\s+Address|Physical\s+Address|Street\s+Address|Headquarters|HQ|Corporate\s+Office|Visit\s+Us(?:\s+at)?)[:\s]+(\d{1,6}\s+[A-Za-z][A-Za-z0-9\s.#'&/,\-]{2,85}?\s+(?:Street|St\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Road|Rd\.?|Lane|Ln\.?|Way|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Trail|Trl\.?|Parkway|Pkwy\.?|Highway|Hwy\.?)\.?(?:[,\s]+[A-Za-z][A-Za-z\s.'-]{1,40}[,\s]+[A-Z]{2}\s*\d{5}(?:-\d{4})?)?)/i,
     /(?:Address|Located\s+at|Our\s+(?:office|location)|Mailing\s+Address|Office\s+Address|Physical\s+Address)[:\s]+([A-Za-z0-9][A-Za-z0-9\s.#'&/,\-]{4,120}?[A-Z]{2}\s*\d{5}(?:-\d{4})?)/i,
   ];
   for (const pat of labeledPatterns) {
     const lm = bodyText.match(pat);
-    if (lm) { results.push({ raw: lm[1].trim() }); break; }
+    if (lm) { addRawCandidate(lm[1]); break; }
   }
 
-    // 7. Rendered address widgets used by site builders (Duda/Thryv/etc)
+  // 7. Rendered address widgets used by site builders (Duda/Thryv/etc)
   const renderedAddressBlocks = html.match(/<[^>]*(?:data-route=["']address["']|data-aid=["'][^"']*ADDRESS_RENDERED[^"']*["'])[^>]*>([\s\S]*?)<\/(?:h\d|p|div|span|address)>/gi) || [];
   for (const block of renderedAddressBlocks) {
     const text = decodeHTML(block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
-    if (text && /\b(?:[A-Z]{2}\s*\d{5}(?:-\d{4})?|\d{5}(?:-\d{4})?)\b/.test(text)) {
-      results.push({ raw: text });
-    }
+    if (!text) continue;
+
+    // Extract the address-like slice from mixed text (e.g., "Sign up Elite Glass Trim 4729 Ramus, Building A...")
+    const embeddedStreet = text.match(/(\d{1,6}\s+[A-Za-z0-9][A-Za-z0-9\s.#'&/,-]{3,120},\s*[A-Za-z][A-Za-z\s.'-]{1,40},\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?(?:,\s*(?:US|USA|United\s+States))?)/i);
+    const embeddedPoBox = text.match(/((?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*[A-Z0-9-]{1,20}(?:\s*,?\s*[A-Za-z][A-Za-z\s.'-]{1,40}\s*,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)?)/i);
+
+    if (embeddedStreet) addRawCandidate(embeddedStreet[1]);
+    else if (embeddedPoBox) addRawCandidate(embeddedPoBox[1]);
+    else if (/\b(?:[A-Z]{2}\s*\d{5}(?:-\d{4})?|\d{5}(?:-\d{4})?)\b/.test(text)) addRawCandidate(text);
   }
 
   // 8. PO Box style addresses (common on contact pages)
-  const poBoxMatches = bodyText.match(/(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*[A-Z0-9-]{1,20}\s*,?\s*[A-Za-z][A-Za-z\s.'-]{1,40}\s*,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?/gi) || [];
-  for (const po of poBoxMatches) {
-    results.push({ raw: po.trim() });
+  const poBoxLinePatterns = [
+    /(?:^|[\s,;])((?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*[A-Z0-9-]{1,20}\s*,?\s*[A-Za-z][A-Za-z\s.'-]{1,40}\s*,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)/i,
+    /(?:^|[\s,;])((?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*[A-Z0-9-]{1,20})/i
+  ];
+  const lines = bodyTextWithBreaks.split(/\r?\n+/).map(l => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    for (const pat of poBoxLinePatterns) {
+      const m = line.match(pat);
+      if (m) { addRawCandidate(m[1]); break; }
+    }
   }
-
   return results;
 }
 
@@ -1448,17 +1479,35 @@ const rawInput = decodeHTML(String(rawAddress));
       || filteredLines[0];
     if (preferredLine) rawAddress = preferredLine;
   }
-  const addr = decodeHTML(String(rawAddress))
+     let addr = decodeHTML(String(rawAddress))
     .replace(/[\[\]{}<>]/g, ' ')
     .replace(/[|]/g, ', ')
     .replace(/\s+/g, ' ')
     .replace(/,+/g, ',')
     .replace(/^\s*,|,\s*$/g, '')
+    .replace(/,\s*(?:US|USA|United\s+States)\s*$/i, '')
     .trim();
 
-   // PO Box format: "P.O. Box 5745, Salem, OR 97304"
+  // Remove common non-address lead-in noise before parsing.
+  addr = addr
+    .replace(/^\s*CCB\s*#?\s*\d+\s*,?\s*/i, '')
+    .replace(/^\s*(?:sign\s*up|subscribe|newsletter)\b[^\dP]{0,60}/i, '')
+    .trim();
+
+  // If a PO Box appears later in a noisy string, slice to it.
+  const poStart = addr.search(/(?:P\.?\s*O\.?|Post\s+Office)\s*Box\b/i);
+  if (poStart > 0) addr = addr.substring(poStart).trim();
+
+  // If a numeric street appears later in a noisy string, slice to the first likely street number.
+  const streetStart = addr.search(/\b\d{1,6}\s+[A-Za-z]/);
+  if (streetStart > 0 && !/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\b/i.test(addr)) {
+    addr = addr.substring(streetStart).trim();
+  }
+
+  // PO Box format: "P.O. Box 5745, Salem, OR 97304"
   const poBoxFull = addr.match(/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*([A-Z0-9-]{1,20})\s*,\s*([A-Za-z][A-Za-z\s.'-]{1,40})\s*,\s*([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/i)
-    || addr.match(/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*([A-Z0-9-]{1,20})\s+([A-Za-z][A-Za-z\s.'-]{1,40})\s+([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/i);
+    || addr.match(/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*([A-Z0-9-]{1,20})\s+([A-Za-z][A-Za-z\s.'-]{1,40})\s+([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/i)
+    || addr.match(/^(?:P\.?\s*O\.?|Post\s+Office)\s*Box\s*#?\s*([A-Z0-9-]{1,20})\b(?:\s*,\s*|\s+)(?:.*?\s+)?([A-Za-z][A-Za-z\s.'-]{1,40})\s*,\s*([A-Z]{2})\s*(\d{5})(?:-\d{4})?\s*$/i);
   if (poBoxFull) {
     result.street = `P.O. Box ${poBoxFull[1].toUpperCase()}`;
     result.city = poBoxFull[2].trim();
