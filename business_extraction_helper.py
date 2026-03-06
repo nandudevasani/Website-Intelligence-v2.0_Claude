@@ -26,6 +26,10 @@ _STREET_PATTERN = re.compile(
 _CITY_STATE_ZIP_PATTERN = re.compile(
     r"\b([A-Za-z\s]+),?\s([A-Z]{2})\s(\d{5})(?:-\d{4})?\b"
 )
+_PRIMARY_ADDRESS_HINT_RE = re.compile(
+    r"\b(?:head\s*office|headquarters|hq|main\s*office|corporate\s*office|primary\s*office)\b",
+    re.IGNORECASE,
+)
 
 
 def _clean_text(text: str) -> str:
@@ -225,6 +229,63 @@ def _address_from_html_fragments(html: str) -> Dict[str, Any]:
     return extract_address_components(joined)
 
 
+def extract_primary_address_components(text: str) -> Dict[str, Any]:
+    """Select a primary address when multiple candidate addresses are present."""
+    flattened = _clean_text(text)
+    if not flattened:
+        return {
+            "street_address": "",
+            "city": "",
+            "state": "",
+            "zip_code": "",
+            "confidence_score": 0,
+        }
+
+    street_matches = list(_STREET_PATTERN.finditer(flattened))
+    if not street_matches:
+        return extract_address_components(flattened)
+
+    best: Dict[str, Any] = {
+        "street_address": "",
+        "city": "",
+        "state": "",
+        "zip_code": "",
+        "confidence_score": 0,
+    }
+    best_score = -1
+
+    for idx, match in enumerate(street_matches):
+        street = _clean_text(match.group(1))
+        start = match.start()
+        end = street_matches[idx + 1].start() if idx + 1 < len(street_matches) else min(len(flattened), match.end() + 220)
+        snippet = flattened[start:end]
+
+        csz = detect_city_state_zip(snippet)
+        score = 1
+        if csz["zip_code"]:
+            score += 3
+        if csz["city"] and csz["state"]:
+            score += 2
+
+        context_start = max(0, start - 120)
+        context = flattened[context_start:end]
+        if _PRIMARY_ADDRESS_HINT_RE.search(context):
+            score += 4
+
+        # Tie-break: first complete-looking address wins naturally.
+        if score > best_score:
+            best_score = score
+            best = {
+                "street_address": street,
+                "city": csz["city"],
+                "state": csz["state"],
+                "zip_code": csz["zip_code"],
+                "confidence_score": 75 if csz["zip_code"] else 65,
+            }
+
+    return best
+
+
 def enhanced_business_extraction(html: str) -> Dict[str, Any]:
     """Return best structured business details from raw HTML."""
     result = dict(OUTPUT_TEMPLATE)
@@ -236,7 +297,7 @@ def enhanced_business_extraction(html: str) -> Dict[str, Any]:
         result.update(schema)
     else:
         text = _html_to_text(html)
-        regex_data = extract_address_components(text)
+        regex_data = extract_primary_address_components(text)
         fragment_data = _address_from_html_fragments(html)
 
         address_best = regex_data

@@ -6,6 +6,7 @@ import dns from 'dns';
 import { URL } from 'url';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +102,43 @@ function normalizeExtractedBusinessName(name) {
   }
   cleaned = cleaned.replace(/\((repeat(?:ed)?\s+\w+)\)$/i, '').trim();
   return cleaned;
+}
+
+async function extractBusinessWithPython(html, pageUrl) {
+  return new Promise((resolve) => {
+    try {
+      const scriptPath = path.join(__dirname, 'python_business_extractor_bridge.py');
+      const py = spawn('python3', [scriptPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+      let out = '';
+      let err = '';
+      const timer = setTimeout(() => {
+        py.kill('SIGKILL');
+        resolve({ ok: false, error: 'Python extractor timed out' });
+      }, 12000);
+
+      py.stdout.on('data', (d) => { out += d.toString(); });
+      py.stderr.on('data', (d) => { err += d.toString(); });
+
+      py.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0 && !out) {
+          return resolve({ ok: false, error: err || `Python exited with code ${code}` });
+        }
+        try {
+          const parsed = JSON.parse(out || '{}');
+          resolve(parsed);
+        } catch {
+          resolve({ ok: false, error: err || 'Invalid JSON from Python extractor' });
+        }
+      });
+
+      py.stdin.write(JSON.stringify({ html: html || '', page_url: pageUrl || '' }));
+      py.stdin.end();
+    } catch (e) {
+      resolve({ ok: false, error: e.message });
+    }
+  });
 }
 
 // === CDN / PLATFORM DOMAIN WHITELIST ===
@@ -2593,6 +2631,22 @@ app.post('/api/extract-business', async (req, res) => {
 
     let business = await extractBusinessInfo(html, domain);
 
+    const pythonExtraction = await extractBusinessWithPython(html, httpStatus.finalUrl || `https://${domain}`);
+    if (pythonExtraction?.ok && pythonExtraction.best) {
+      const py = pythonExtraction.best;
+      if (!business.businessName && py.business_name) business.businessName = py.business_name;
+      if (!business.address.street && py.street_address) business.address.street = py.street_address;
+      if (!business.address.city && py.city) business.address.city = py.city;
+      if (!business.address.state && py.state) business.address.state = py.state;
+      if (!business.address.zip && py.zip_code) business.address.zip = py.zip_code;
+      if ((pythonExtraction.used_fallback || py.confidence_score >= 80) && py.business_name) {
+        business.businessName = py.business_name;
+      }
+      console.log(`  [PY-EXTRACT] ok=${pythonExtraction.ok} fallback=${pythonExtraction.used_fallback ? 'yes' : 'no'} score=${py.confidence_score || 0}`);
+    } else {
+      console.log(`  [PY-EXTRACT] skipped: ${pythonExtraction?.error || 'unknown error'}`);
+    }
+
 
     // Fetch contact page if street or key data is missing
     const needsContactPage = !business.address.street || business.phones.length === 0 || business.emails.length === 0;
@@ -2600,6 +2654,15 @@ app.post('/api/extract-business', async (req, res) => {
       const contactHtml = await fetchContactPage(domain, html);
       if (contactHtml) {
         const contactBusiness = await extractBusinessInfo(contactHtml, domain);
+        const contactPythonExtraction = await extractBusinessWithPython(contactHtml, `https://${domain}`);
+        if (contactPythonExtraction?.ok && contactPythonExtraction.best) {
+          const cp = contactPythonExtraction.best;
+          if (!contactBusiness.businessName && cp.business_name) contactBusiness.businessName = cp.business_name;
+          if (!contactBusiness.address.street && cp.street_address) contactBusiness.address.street = cp.street_address;
+          if (!contactBusiness.address.city && cp.city) contactBusiness.address.city = cp.city;
+          if (!contactBusiness.address.state && cp.state) contactBusiness.address.state = cp.state;
+          if (!contactBusiness.address.zip && cp.zip_code) contactBusiness.address.zip = cp.zip_code;
+        }
         // Merge: fill in any blanks from the contact page
         if (!business.address.street && contactBusiness.address.street) business.address.street = contactBusiness.address.street;
         if (!business.address.city   && contactBusiness.address.city)   business.address.city   = contactBusiness.address.city;
