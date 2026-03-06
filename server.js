@@ -108,28 +108,40 @@ async function extractBusinessWithPython(html, pageUrl) {
   return new Promise((resolve) => {
     try {
       const scriptPath = path.join(__dirname, 'python_business_extractor_bridge.py');
-      const py = spawn('python3', [scriptPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const pythonCmd = process.env.PYTHON_EXTRACTOR_CMD || 'python3';
+      const py = spawn(pythonCmd, [scriptPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let settled = false;
+
+      const settle = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
 
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
         py.kill('SIGKILL');
-        resolve({ ok: false, error: 'Python extractor timed out' });
+        settle({ ok: false, error: 'Python extractor timed out' });
       }, 12000);
 
       py.stdout.on('data', (d) => { out += d.toString(); });
       py.stderr.on('data', (d) => { err += d.toString(); });
+      py.on('error', (e) => {
+        settle({ ok: false, error: `Python spawn failed (${pythonCmd}): ${e.message}` });
+      });
 
       py.on('close', (code) => {
-        clearTimeout(timer);
+        if (settled) return;
         if (code !== 0 && !out) {
-          return resolve({ ok: false, error: err || `Python exited with code ${code}` });
+          return settle({ ok: false, error: err || `Python exited with code ${code}` });
         }
         try {
           const parsed = JSON.parse(out || '{}');
-          resolve(parsed);
+          settle(parsed);
         } catch {
-          resolve({ ok: false, error: err || 'Invalid JSON from Python extractor' });
+          settle({ ok: false, error: err || 'Invalid JSON from Python extractor' });
         }
       });
 
@@ -2639,10 +2651,11 @@ app.post('/api/extract-business', async (req, res) => {
       if (!business.address.city && py.city) business.address.city = py.city;
       if (!business.address.state && py.state) business.address.state = py.state;
       if (!business.address.zip && py.zip_code) business.address.zip = py.zip_code;
-      if ((pythonExtraction.used_fallback || py.confidence_score >= 80) && py.business_name) {
+      const pythonNameIsAuthoritative = pythonExtraction.best_name_source === 'primary' && py.confidence_score >= 80;
+      if (pythonNameIsAuthoritative && py.business_name) {
         business.businessName = py.business_name;
       }
-      console.log(`  [PY-EXTRACT] ok=${pythonExtraction.ok} fallback=${pythonExtraction.used_fallback ? 'yes' : 'no'} score=${py.confidence_score || 0}`);
+      console.log(`  [PY-EXTRACT] ok=${pythonExtraction.ok} fallback=${pythonExtraction.used_fallback ? 'yes' : 'no'} score=${py.confidence_score || 0} name_source=${pythonExtraction.best_name_source || 'none'}`);
     } else {
       console.log(`  [PY-EXTRACT] skipped: ${pythonExtraction?.error || 'unknown error'}`);
     }
